@@ -23,16 +23,30 @@
  */
 
 // ============================================================
-// CONFIG — Replace this with your OAuth Client ID
+// CONFIG — Set your OAuth Client ID as a Script Property:
+//   1. In the Apps Script editor, click ⚙️ Project Settings (gear icon)
+//   2. Scroll to "Script Properties"
+//   3. Click "Add script property"
+//   4. Property: OAUTH_CLIENT_ID
+//   5. Value: your-client-id.apps.googleusercontent.com
+//   6. Save
+//
+// This keeps credentials out of the source code.
 // ============================================================
-var CLIENT_ID = '140020498812-om5c4gvnqgn40f0k2h1oj4p23f1m4458.apps.googleusercontent.com';
+
+function getClientId() {
+  var id = PropertiesService.getScriptProperties().getProperty('OAUTH_CLIENT_ID');
+  if (!id) throw new Error('OAUTH_CLIENT_ID not set. Go to Project Settings → Script Properties and add it.');
+  return id;
+}
 
 // ============================================================
 // BACKEND — Only serves the HTML page
 // ============================================================
 
 function doGet() {
-  var html = getUploadPage().replace('__CLIENT_ID__', CLIENT_ID);
+  var clientId = getClientId();
+  var html = getUploadPage().replace('__CLIENT_ID__', clientId);
   return HtmlService.createHtmlOutput(html)
     .setTitle('Claude Migration Backup')
     .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL)
