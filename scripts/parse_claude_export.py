@@ -95,6 +95,21 @@ def format_message(msg):
                     parts.append(f"*[Tool call: {block.get('name', 'unknown')}]*")
                 elif block.get('type') == 'tool_result':
                     parts.append(f"*[Tool result]*")
+                elif block.get('type') == 'thinking':
+                    # Include a brief summary if available
+                    summaries = block.get('summaries', '')
+                    thinking = block.get('thinking', '')
+                    if summaries and isinstance(summaries, str):
+                        try:
+                            slist = eval(summaries) if summaries.startswith('[') else []
+                            if slist and isinstance(slist[0], dict):
+                                parts.append(f"*[Thinking: {slist[0].get('summary', '')[:150]}]*")
+                        except:
+                            pass
+                    elif thinking:
+                        parts.append(f"*[Thinking: {thinking[:150]}]*")
+                elif block.get('type') == 'token_budget':
+                    pass  # Skip token budget blocks
                 elif block.get('type') == 'image':
                     parts.append('*[Image]*')
                 elif block.get('type') == 'document':
@@ -160,10 +175,12 @@ def get_messages(conv):
     return []
 
 
-def generate_memory_summary(all_conversations):
+def generate_memory_summary(all_conversations, memories_data=None, projects_data=None):
     """
     Analyze all conversations to extract recurring themes, tools,
     preferences, projects, and other context suitable for memory import.
+    If memories_data is provided (from memories.json), include the actual
+    Claude memory blob which is far more accurate than keyword extraction.
     """
     user_messages = []
     topics = []
@@ -228,9 +245,52 @@ def generate_memory_summary(all_conversations):
     lines.append("**Review carefully before importing.** Remove anything outdated, sensitive, or irrelevant.")
     lines.append("")
 
+    # --- SECTION 1: Real Claude Memory (if available) ---
+    if memories_data:
+        lines.append("## Your Claude Memory (from source account)")
+        lines.append("")
+        lines.append("This is Claude's actual memory from your source account — the most important section to review and import.")
+        lines.append("")
+        mem_text = None
+        if isinstance(memories_data, list):
+            for item in memories_data:
+                if isinstance(item, dict) and 'conversations_memory' in item:
+                    mem_text = item['conversations_memory']
+                    break
+        elif isinstance(memories_data, dict) and 'conversations_memory' in memories_data:
+            mem_text = memories_data['conversations_memory']
+
+        if mem_text:
+            lines.append(mem_text)
+        else:
+            lines.append("*Memory data was present but could not be parsed.*")
+        lines.append("")
+
+    # --- SECTION 2: Projects (if available) ---
+    if projects_data and isinstance(projects_data, list):
+        real_projects = [p for p in projects_data if not p.get('is_starter_project')]
+        if real_projects:
+            lines.append("## Projects from Source Account")
+            lines.append("")
+            lines.append("These projects existed in your source account. You may want to recreate them in the target account.")
+            lines.append("")
+            for p in real_projects:
+                lines.append(f"### {p.get('name', 'Unnamed Project')}")
+                if p.get('description'):
+                    lines.append(f"**Description:** {p['description']}")
+                if p.get('prompt_template'):
+                    lines.append(f"**Custom Instructions:** {p['prompt_template']}")
+                docs = p.get('docs', [])
+                if docs:
+                    lines.append(f"**Knowledge Files:** {len(docs)} file(s)")
+                    for d in docs:
+                        lines.append(f"  - {d.get('filename', 'unnamed')}")
+                lines.append(f"**Created:** {p.get('created_at', 'unknown')[:10]}")
+                lines.append("")
+
+    # --- SECTION 3: Conversation Topics ---
     lines.append("## Top Discussion Topics")
     lines.append("")
-    # Deduplicate similar topics
     seen = set()
     unique_topics = []
     for t in topics:
@@ -242,14 +302,17 @@ def generate_memory_summary(all_conversations):
         lines.append(f"- {t}")
     lines.append("")
 
-    lines.append("## Frequently Referenced Keywords")
-    lines.append("")
-    lines.append("These words appeared most often in your messages (potential areas of focus):")
-    lines.append("")
-    for word, count in word_freq.most_common(40):
-        lines.append(f"- **{word}** ({count} mentions)")
-    lines.append("")
+    # --- SECTION 4: Keywords (only if no real memory) ---
+    if not memories_data:
+        lines.append("## Frequently Referenced Keywords")
+        lines.append("")
+        lines.append("These words appeared most often in your messages (potential areas of focus):")
+        lines.append("")
+        for word, count in word_freq.most_common(40):
+            lines.append(f"- **{word}** ({count} mentions)")
+        lines.append("")
 
+    # --- SECTION 5: Tools Used ---
     if tool_mentions:
         lines.append("## Tools Used")
         lines.append("")
@@ -257,24 +320,37 @@ def generate_memory_summary(all_conversations):
             lines.append(f"- `{tool}` ({count} uses)")
         lines.append("")
 
-    lines.append("## Suggested Memory Edits for Target Account")
+    # --- SECTION 6: Import Instructions ---
+    lines.append("## How to Import This Memory")
     lines.append("")
-    lines.append("Copy these into **Settings → Capabilities → Memory → View and edit your memory** on the target account.")
-    lines.append("Adjust as needed:")
+    lines.append("### Option A: Import the full memory block (recommended)")
+    lines.append("1. Log into your **target** Claude account")
+    lines.append("2. Go to **Settings → Capabilities → Memory**")
+    lines.append("3. Click **\"View and edit your memory\"**")
+    lines.append("4. Copy the text from **\"Your Claude Memory\"** section above")
+    lines.append("5. Add it as memory edits, or use the **Import Memory** feature if available")
+    lines.append("")
+    lines.append("### Option B: Start fresh with key context")
+    lines.append("Open a new chat in the target account and paste:")
     lines.append("")
     lines.append("```")
-    lines.append("# --- PASTE BELOW INTO MEMORY EDITS ---")
-    lines.append("# Delete any lines that are no longer relevant")
+    lines.append("Here is context about me from a previous Claude account. Please absorb this:")
     lines.append("")
-    lines.append(f"# Total conversations migrated: {len(all_conversations)}")
-    lines.append(f"# Top keywords: {', '.join(w for w, _ in word_freq.most_common(15))}")
-    if tool_mentions:
-        lines.append(f"# Frequently used tools: {', '.join(t for t, _ in tool_mentions.most_common(10))}")
-    lines.append("")
-    lines.append("# Add your own context lines below, e.g.:")
-    lines.append("# User works at [Company] as [Role]")
-    lines.append("# User prefers [coding language / framework]")
-    lines.append("# User is working on [project name]")
+    if memories_data:
+        # Extract first 500 chars of memory as a starter
+        if mem_text:
+            for line in mem_text.split('\n')[:20]:
+                lines.append(line)
+    else:
+        lines.append(f"# Total conversations migrated: {len(all_conversations)}")
+        lines.append(f"# Top keywords: {', '.join(w for w, _ in word_freq.most_common(15))}")
+        if tool_mentions:
+            lines.append(f"# Frequently used tools: {', '.join(t for t, _ in tool_mentions.most_common(10))}")
+        lines.append("")
+        lines.append("# Add your own context:")
+        lines.append("# User works at [Company] as [Role]")
+        lines.append("# User prefers [coding language / framework]")
+        lines.append("# User is working on [project name]")
     lines.append("```")
     lines.append("")
 
@@ -303,6 +379,9 @@ def main():
 
     # --- Extract and locate JSON data ---
     all_conversations = []
+    projects_data = []
+    memories_data = None
+    users_data = None
     json_files_found = []
     other_files = []
 
@@ -313,12 +392,35 @@ def main():
                 try:
                     raw = zf.read(name)
                     data = json.loads(raw)
-                    convs = parse_conversations(data)
-                    if convs:
-                        all_conversations.extend(convs)
-                        print(f"  ✅ {name}: {len(convs)} conversation(s)")
+
+                    # Handle known Claude export files explicitly
+                    if name == 'conversations.json':
+                        if isinstance(data, list):
+                            all_conversations = data
+                            print(f"  ✅ {name}: {len(data)} conversation(s)")
+                        else:
+                            convs = parse_conversations(data)
+                            if convs:
+                                all_conversations.extend(convs)
+                                print(f"  ✅ {name}: {len(convs)} conversation(s)")
+                    elif name == 'projects.json':
+                        if isinstance(data, list):
+                            projects_data = data
+                            print(f"  ✅ {name}: {len(data)} project(s)")
+                    elif name == 'memories.json':
+                        memories_data = data
+                        print(f"  ✅ {name}: memory data found")
+                    elif name == 'users.json':
+                        users_data = data
+                        print(f"  ✅ {name}: user data found")
                     else:
-                        print(f"  ⚠️  {name}: parsed but no conversations found (may be account metadata)")
+                        # Try to find conversations in unknown files
+                        convs = parse_conversations(data)
+                        if convs:
+                            all_conversations.extend(convs)
+                            print(f"  ✅ {name}: {len(convs)} conversation(s)")
+                        else:
+                            print(f"  ℹ️  {name}: metadata (skipped)")
                 except (json.JSONDecodeError, UnicodeDecodeError) as e:
                     print(f"  ❌ {name}: failed to parse ({e})")
             else:
@@ -426,8 +528,46 @@ def main():
     (output_dir / 'index.md').write_text('\n'.join(idx_lines), encoding='utf-8')
 
     # --- Write memory summary ---
-    memory_md = generate_memory_summary(all_conversations)
+    memory_md = generate_memory_summary(all_conversations, memories_data, projects_data)
     (output_dir / 'memory-summary.md').write_text(memory_md, encoding='utf-8')
+
+    # --- Write projects file (if projects exist) ---
+    if projects_data:
+        proj_lines = ["# Projects from Source Account", ""]
+        real_projects = [p for p in projects_data if not p.get('is_starter_project')]
+        starter_projects = [p for p in projects_data if p.get('is_starter_project')]
+        proj_lines.append(f"**Total projects:** {len(projects_data)} ({len(real_projects)} custom, {len(starter_projects)} starter)")
+        proj_lines.append("")
+        for p in real_projects:
+            proj_lines.append(f"## {p.get('name', 'Unnamed Project')}")
+            proj_lines.append("")
+            if p.get('description'):
+                proj_lines.append(f"**Description:** {p['description']}")
+            if p.get('prompt_template'):
+                proj_lines.append(f"**Custom Instructions:**")
+                proj_lines.append(f"```")
+                proj_lines.append(p['prompt_template'])
+                proj_lines.append(f"```")
+            proj_lines.append(f"**Created:** {p.get('created_at', '?')[:10]}")
+            proj_lines.append(f"**Updated:** {p.get('updated_at', '?')[:10]}")
+            docs = p.get('docs', [])
+            if docs:
+                proj_lines.append(f"**Knowledge Files ({len(docs)}):**")
+                for d in docs:
+                    proj_lines.append(f"- {d.get('filename', 'unnamed')}")
+                    # Include doc content if present (useful for recreating the project)
+                    content = d.get('content', '')
+                    if content:
+                        proj_lines.append(f"  <details><summary>Content preview ({len(content)} chars)</summary>")
+                        proj_lines.append(f"  ```")
+                        proj_lines.append(f"  {content[:2000]}{'...' if len(content) > 2000 else ''}")
+                        proj_lines.append(f"  ```")
+                        proj_lines.append(f"  </details>")
+            proj_lines.append("")
+            proj_lines.append("---")
+            proj_lines.append("")
+
+        (output_dir / 'projects.md').write_text('\n'.join(proj_lines), encoding='utf-8')
 
     # --- Write stats ---
     stats_lines = []
@@ -453,6 +593,10 @@ def main():
     print(f"✅ Migration output ready at: {output_dir}/")
     print(f"   📄 index.md — Master conversation index")
     print(f"   🧠 memory-summary.md — Memory summary for import")
+    if projects_data:
+        real_p = [p for p in projects_data if not p.get('is_starter_project')]
+        if real_p:
+            print(f"   📂 projects.md — {len(real_p)} project(s) with docs and settings")
     print(f"   📊 stats.md — Export statistics")
     print(f"   💬 conversations/ — {len(index_entries)} conversation files")
     print()

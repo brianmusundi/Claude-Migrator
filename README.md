@@ -232,6 +232,10 @@ def get_text(content):
                         for s in inner:
                             if isinstance(s, dict) and s.get('type') == 'text': parts.append(s.get('text', ''))
                     elif isinstance(inner, str): parts.append(inner)
+                elif b.get('type') == 'thinking':
+                    t = b.get('thinking', '')
+                    if t: parts.append(f"*[Thinking: {t[:150]}]*")
+                elif b.get('type') == 'token_budget': pass  # skip
                 elif b.get('type') in ('image', 'document'): parts.append(f"[{b['type'].title()}]")
             elif isinstance(b, str): parts.append(b)
         return '\n\n'.join(p for p in parts if p.strip())
@@ -270,6 +274,7 @@ out.mkdir(parents=True, exist_ok=True)
 (out / 'conversations').mkdir(exist_ok=True)
 
 all_convos, fixes, warnings = [], [], []
+memories_data, projects_data = None, []
 
 if input_path.suffix == '.zip':
     with zipfile.ZipFile(input_path, 'r') as zf:
@@ -280,9 +285,18 @@ if input_path.suffix == '.zip':
                 try:
                     raw = zf.read(name).decode('utf-8', errors='replace')
                     data = json.loads(raw)
-                    convos, is_gpt = find_convos(data)
-                    if is_gpt: warnings.append("Looks like a ChatGPT export — parsed anyway")
-                    all_convos.extend(convos)
+                    if name == 'conversations.json':
+                        if isinstance(data, list): all_convos = data
+                        else:
+                            convos, _ = find_convos(data); all_convos.extend(convos)
+                    elif name == 'memories.json':
+                        memories_data = data
+                    elif name == 'projects.json':
+                        if isinstance(data, list): projects_data = data
+                    elif name != 'users.json':
+                        convos, is_gpt = find_convos(data)
+                        if is_gpt: warnings.append("Looks like a ChatGPT export — parsed anyway")
+                        all_convos.extend(convos)
                 except json.JSONDecodeError as e:
                     try:
                         trimmed = raw[:e.pos].rstrip(', \n\t')
@@ -374,25 +388,68 @@ for e in index: idx.append(f"| {e['dd']} | [{e['topic'][:80]}](conversations/{e[
 
 # MEMORY SUMMARY
 mem = ["# Memory Summary for Import", "", "Review this carefully. Remove anything outdated or personal before importing.", ""]
+
+# Include real Claude memory if available
+if memories_data:
+    mem.append("## Your Claude Memory (from source account)\n")
+    mem.append("This is Claude's actual memory — the most important section to review and import.\n")
+    mem_text = None
+    if isinstance(memories_data, list):
+        for item in memories_data:
+            if isinstance(item, dict) and 'conversations_memory' in item:
+                mem_text = item['conversations_memory']; break
+    elif isinstance(memories_data, dict) and 'conversations_memory' in memories_data:
+        mem_text = memories_data['conversations_memory']
+    if mem_text: mem.append(mem_text)
+    mem.append("")
+
+# Include projects
+if projects_data:
+    real_proj = [p for p in projects_data if not p.get('is_starter_project')]
+    if real_proj:
+        mem.append("## Projects from Source Account\n")
+        for p in real_proj:
+            mem.append(f"### {p.get('name', 'Unnamed')}")
+            if p.get('description'): mem.append(f"**Description:** {p['description']}")
+            if p.get('prompt_template'): mem.append(f"**Custom Instructions:** {p['prompt_template']}")
+            docs = p.get('docs', [])
+            if docs: mem.append(f"**Knowledge Files:** {', '.join(d.get('filename','?') for d in docs)}")
+            mem.extend(["", "---", ""])
+
 mem.append("## Topics Discussed\n")
 seen_t = set()
 for t in topics:
     k = sanitize(t[:40])
     if k not in seen_t: seen_t.add(k); mem.append(f"- {t}")
-mem.append("\n## Key Focus Areas\n")
-for w, ct in word_freq.most_common(25):
-    if ct >= 2: mem.append(f"- **{w}** ({ct} mentions)")
+
+if not memories_data:
+    mem.append("\n## Key Focus Areas\n")
+    for w, ct in word_freq.most_common(25):
+        if ct >= 2: mem.append(f"- **{w}** ({ct} mentions)")
+
 if tool_freq:
     mem.append("\n## Tools Used\n")
     for t, ct in tool_freq.most_common(10): mem.append(f"- `{t}` ({ct} uses)")
-mem.extend(["", "## Ready-to-Import Memory Edits", "", "Copy these into your target account at **Settings → Capabilities → Memory → View and edit your memory**:", ""])
-mem.append("```")
-mem.append(f"Migrated {len(index)} conversations ({earliest.strftime('%b %Y') if earliest else '?'} to {latest.strftime('%b %Y') if latest else '?'})")
-top_kw = ', '.join(w for w, _ in word_freq.most_common(10) if _ >= 2)
-if top_kw: mem.append(f"Key areas: {top_kw}")
-if tool_freq: mem.append(f"Tools used: {', '.join(t for t, _ in tool_freq.most_common(8))}")
-mem.extend(["", "# Add your own lines below:", "# User works at [Company] as [Role]", "# User prefers [tools/languages]", "# User is working on [projects]", "```"])
+
+mem.extend(["", "## How to Import", "", "1. Log into target account → Settings → Capabilities → Memory", "2. Click 'View and edit your memory'", "3. Add the key context from 'Your Claude Memory' section above", "4. Or use Import Memory feature to paste the full block", ""])
 (out / 'memory-summary.md').write_text('\n'.join(mem), encoding='utf-8')
+
+# PROJECTS FILE
+if projects_data:
+    real_proj = [p for p in projects_data if not p.get('is_starter_project')]
+    if real_proj:
+        plines = ["# Projects from Source Account", "", f"**Total:** {len(real_proj)} custom project(s)", ""]
+        for p in real_proj:
+            plines.append(f"## {p.get('name', 'Unnamed')}")
+            if p.get('description'): plines.append(f"**Description:** {p['description']}")
+            if p.get('prompt_template'): plines.extend([f"**Custom Instructions:**", "```", p['prompt_template'], "```"])
+            plines.append(f"**Created:** {p.get('created_at', '?')[:10]}")
+            docs = p.get('docs', [])
+            if docs:
+                plines.append(f"**Knowledge Files ({len(docs)}):**")
+                for d in docs: plines.append(f"- {d.get('filename', '?')}")
+            plines.extend(["", "---", ""])
+        (out / 'projects.md').write_text('\n'.join(plines), encoding='utf-8')
 
 # STATS
 mx = max(monthly.values()) if monthly else 1
