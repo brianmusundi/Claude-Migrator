@@ -200,14 +200,24 @@ function onCredential(resp) {
   // Decode JWT to get user info
   var p = JSON.parse(atob(resp.credential.split('.')[1]));
   showUser(p.name, p.email, p.picture);
-  // Hide auth card immediately — user has picked their account
+  // Hide auth card, show status immediately
   document.getElementById('authCard').style.display = 'none';
-  // Request access token, hinting the same account
-  tokenClient.requestAccessToken({ hint: p.email });
+  show('sb');
+  setStatus('pe', 'Requesting Drive access — check for a popup window...');
+  // Request access token — this opens a consent popup
+  try {
+    tokenClient.requestAccessToken({ hint: p.email });
+  } catch (e) {
+    setStatus('er', 'Failed to request access: ' + e.message + '. Try disabling your popup blocker for this site.');
+  }
 }
 
 function onToken(resp) {
-  if (resp.error) { setStatus('er', 'Auth failed: ' + resp.error); return; }
+  if (resp.error) {
+    setStatus('er', 'Drive access denied: ' + resp.error + '. Click Switch Account to try again.');
+    show('dz'); // still show drop zone but it won't work without token
+    return;
+  }
   accessToken = resp.access_token;
   document.getElementById('authCard').style.display = 'none';
   show('sb'); show('dz');
