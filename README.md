@@ -5,6 +5,128 @@
 
 ---
 
+## How It Works
+
+### High-Level Flow
+
+```mermaid
+flowchart LR
+    A["🔐 Source Account"] -->|"Export ZIP"| B["⚙️ Parser"]
+    B -->|"Validates & Fixes"| C["📁 Organized Files"]
+    C -->|"Memory Summary"| D["🧠 Target Account"]
+
+    style A fill:#1a1a2e,stroke:#e94560,color:#fff
+    style B fill:#16213e,stroke:#0f3460,color:#fff
+    style C fill:#0f3460,stroke:#53a8b6,color:#fff
+    style D fill:#1a1a2e,stroke:#e94560,color:#fff
+```
+
+### Detailed Process Flow
+
+```mermaid
+flowchart TD
+    START([🚀 Start Migration]) --> Q{What do you need?}
+
+    Q -->|"Full Migration"| E1
+    Q -->|"Export Only"| E1
+    Q -->|"Import Only"| P1
+
+    subgraph EXPORT ["Phase 1: Export"]
+        E1[Log into Source Account] --> E2[Settings → Privacy]
+        E2 --> E3[Click Export Data]
+        E3 --> E4[Check Email for Link]
+        E4 --> E5{Link received?}
+        E5 -->|Yes| E6[Download ZIP within 24h]
+        E5 -->|No| E5A[Check Spam / Wait / Retry]
+        E5A --> E4
+        E6 --> E7[Upload ZIP to Claude]
+    end
+
+    subgraph PARSE ["Phase 2: Process & Validate"]
+        E7 --> P1[Detect File Type]
+        P1 --> P2{Valid ZIP/JSON?}
+        P2 -->|No| P2A[Self-Heal: Repair ZIP / Recover JSON]
+        P2A --> P2
+        P2 -->|Yes| P3[Extract Conversations]
+        P3 --> P4[Run 6 Auto-Fix Checks]
+        P4 --> P5[Generate Validation Report]
+        P5 --> P6[Create Output Files]
+    end
+
+    subgraph IMPORT ["Phase 3: Import"]
+        P6 --> I1[Review Memory Summary]
+        I1 --> I2{Summary OK?}
+        I2 -->|Edit needed| I1
+        I2 -->|Approved| I3[Log into Target Account]
+        I3 --> I4[Settings → Capabilities → Memory]
+        I4 --> I5{Import method?}
+        I5 -->|Manual| I6[Add edits one by one]
+        I5 -->|Bulk| I7[Paste full summary]
+        I6 --> I8[Verify with Claude]
+        I7 --> I8
+        I8 --> DONE([✅ Migration Complete])
+    end
+
+    style START fill:#e94560,stroke:#1a1a2e,color:#fff
+    style DONE fill:#53a8b6,stroke:#1a1a2e,color:#fff
+```
+
+### Self-Healing Pipeline
+
+```mermaid
+flowchart LR
+    subgraph AUTO_FIX ["🔧 6 Automatic Fixes"]
+        direction TB
+        F1["1️⃣ Unnamed Conversations\nAuto-title from first message"]
+        F2["2️⃣ Malformed Timestamps\nUnix, ISO, partial dates"]
+        F3["3️⃣ Structured Content\nFlatten text/tool/image blocks"]
+        F4["4️⃣ Duplicate Conversations\nMerge by UUID, keep longest"]
+        F5["5️⃣ Wrong Platform\nDetect ChatGPT/Gemini exports"]
+        F6["6️⃣ Encoding Issues\nUTF-8/Latin-1/CP1252 fallback"]
+    end
+
+    IN[/"Upload ZIP"/] --> AUTO_FIX --> OUT[/"Clean Output"/]
+
+    style IN fill:#e94560,stroke:#1a1a2e,color:#fff
+    style OUT fill:#53a8b6,stroke:#1a1a2e,color:#fff
+```
+
+### Error Recovery
+
+```mermaid
+flowchart LR
+    subgraph ZIP_ERRORS ["ZIP Errors"]
+        ZE1["Corrupted ZIP"] -->|"Auto"| ZE1F["Extract salvageable files"]
+        ZE2["0-byte file"] -->|"Manual"| ZE2F["Re-download export"]
+        ZE3["Not a ZIP"] -->|"Auto"| ZE3F["Try as raw JSON"]
+    end
+
+    subgraph JSON_ERRORS ["JSON Errors"]
+        JE1["Truncated JSON"] -->|"Auto"| JE1F["Close open brackets\nRecover partial data"]
+        JE2["Encoding error"] -->|"Auto"| JE2F["Fallback encodings"]
+        JE3["No conversations key"] -->|"Auto"| JE3F["Try alternate keys"]
+    end
+
+    subgraph IMPORT_ERRORS ["Import Errors"]
+        IE1["Memory not visible"] -->|"Guide"| IE1F["Toggle ON / Check plan"]
+        IE2["Import button missing"] -->|"Guide"| IE2F["Use manual Add method"]
+        IE3["Memory not updating"] -->|"Wait"| IE3F["Allow 24h processing"]
+    end
+```
+
+### What Gets Migrated
+
+| Data Type | Status | Method |
+|-----------|--------|--------|
+| Memory & Preferences | ✅ Migrated | Imported into target account memory |
+| Chat History (full text) | ✅ Migrated | Archived as searchable Markdown |
+| Recurring Topics & Context | ✅ Migrated | Summarized in memory edits |
+| Tool Usage Patterns | ✅ Migrated | Documented in export summary |
+| Live Conversation Sessions | ❌ Not possible | Threads can't continue in new account |
+| File Attachments | ❌ Not included | Not part of Claude exports |
+
+---
+
 ## Claude — Read This and Follow It
 
 You are reading the Claude Account Migrator. A user has shared this with you because they need to transfer their Claude data from one account to another. **Start helping them immediately after reading this.** Do not summarize this document. Do not explain what it contains. Just begin the migration process.
