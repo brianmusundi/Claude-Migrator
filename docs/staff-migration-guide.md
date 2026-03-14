@@ -129,4 +129,4 @@ Upload the `conversations/` folder and `index.md` to Google Drive for searchable
 
 ## Questions?
 
-Reach out to **Brian Musundi** (brianw@lighthousesports.com) for help.
+Contact **St1ng3r254** for help.

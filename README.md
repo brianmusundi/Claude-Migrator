@@ -4,7 +4,7 @@
 
 Anthropic doesn't support direct account-to-account chat transfer. This tool bridges that gap — export from one Claude account, parse and validate your data, and import context into another account (personal → team, team → team, etc).
 
-Built for [Lighthouse Sports](mailto:brianw@lighthousesports.com) staff. Works for anyone with two Claude accounts.
+Built by St1ng3r254. Works for anyone with two Claude accounts.
 
 ---
 
@@ -236,6 +236,4 @@ MIT — use freely, modify as needed.
 
 ## Contact
 
-**Brian Musundi** — brianw@lighthousesports.com
-
-Built for Lighthouse Sports staff. Contributions welcome.
+St1ng3r254
