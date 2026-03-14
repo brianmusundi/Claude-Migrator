@@ -490,6 +490,97 @@ If a user asks about old conversations or "where's my backup" in a future chat:
 
 ---
 
+## AVAILABLE TOOLS AND SKILLS
+
+Claude has access to the following tools during migration. **Use them proactively** — don't ask the user to do things manually when a tool can do it.
+
+### Core Migration Tools (always available)
+
+| Tool | What it does | When to use |
+|------|-------------|-------------|
+| `memory_user_edits` | Read, add, remove, replace memory edits | Import memory facts into the target account. View existing memory. Remove outdated entries. |
+| `bash_tool` | Run Python scripts, process files | Parse the export ZIP, validate data, generate output files. |
+| `create_file` / `view` / `str_replace` | Create, read, edit files | Generate conversation Markdown files, memory summaries, project docs. |
+| `present_files` | Show files to the user for download | Deliver the processed conversation archive, index, stats. |
+| `web_search` / `web_fetch` | Search the web, fetch pages | Look up current Claude export documentation if the format has changed. |
+| `conversation_search` / `recent_chats` | Search past chats | Find previous migration conversations or related context. |
+
+### Google Drive (read-only)
+
+| Tool | What it does | When to use |
+|------|-------------|-------------|
+| `google_drive_search` | Search Drive files and folders | Find previous migration backups: `name contains 'Claude Readable'` or `name contains 'Migration'`. |
+| `google_drive_fetch` | Read Google Docs content | Fetch the [Claude Readable] copies of migration files to read backup contents. Only works on Google Docs format — not raw Markdown. |
+
+**Drive backup upload** is handled by the external uploader at **https://brianmusundi.github.io/Claude-Migrator/upload.html** — Claude cannot write to Drive directly.
+
+### Gmail
+
+| Tool | What it does | When to use |
+|------|-------------|-------------|
+| `Gmail:gmail_create_draft` | Draft an email | Create a migration receipt email after import is complete. |
+| `Gmail:gmail_search_messages` | Search emails | Find Amazon order confirmations, export notification emails, or any email context needed during migration. |
+| `Gmail:gmail_read_message` | Read a specific email | Read export notification emails or order receipts for asset register cross-referencing. |
+| `Gmail:gmail_read_thread` | Read an email thread | Follow full email conversations when context is needed. |
+| `Gmail:gmail_get_profile` | Get the user's email | Detect which account is active — use this to auto-fill the `to` field in migration receipt drafts. |
+| `Gmail:gmail_list_labels` | List Gmail labels | Check for organization-specific labels if needed. |
+| `Gmail:gmail_list_drafts` | List draft emails | Verify the migration receipt draft was created. |
+
+### Google Calendar
+
+| Tool | What it does | When to use |
+|------|-------------|-------------|
+| `Google Calendar:gcal_list_events` | List calendar events | If the user wants to verify their calendar context migrated. Not directly used in migration, but available. |
+| `Google Calendar:gcal_create_event` | Create events | Optionally schedule a "migration complete" reminder or follow-up check. |
+| `Google Calendar:gcal_list_calendars` | List calendars | Check what calendars exist in the target account. |
+| `Google Calendar:gcal_find_meeting_times` | Find meeting times | Not directly used in migration, but available if user asks. |
+| `Google Calendar:gcal_find_my_free_time` | Find free time | Not directly used in migration, but available if user asks. |
+| `Google Calendar:gcal_get_event` | Get event details | Not directly used in migration, but available if user asks. |
+| `Google Calendar:gcal_update_event` | Update events | Not directly used in migration, but available if user asks. |
+| `Google Calendar:gcal_delete_event` | Delete events | Not directly used in migration, but available if user asks. |
+| `Google Calendar:gcal_respond_to_event` | RSVP to events | Not directly used in migration, but available if user asks. |
+
+### Computer Use Skills
+
+| Skill | When to use |
+|-------|-------------|
+| `docx` | If user wants the migration report as a Word document instead of Markdown. |
+| `pdf` | If user wants the migration report as a PDF. |
+| `pptx` | If user wants a presentation summarizing the migration. |
+| `xlsx` | If user wants conversation data in a spreadsheet format. |
+| `frontend-design` | If the migration output needs a custom HTML dashboard or viewer. |
+
+### How to Use Tools During Migration
+
+**During PHASE 2 (Processing):**
+- Use `bash_tool` to run the parser script
+- Use `create_file` to write output files
+- Use `present_files` to deliver them
+
+**During PHASE 3 (Import):**
+- Use `Gmail:gmail_get_profile` to detect the user's email
+- Use `memory_user_edits(command="view")` first to check existing memory
+- Use `memory_user_edits(command="add", control="...")` for each fact
+- If memory tool isn't available, fall back to manual instructions
+
+**During PHASE 4 (Backup):**
+- Use `present_files` to give user downloadable files
+- Use `Gmail:gmail_create_draft` to draft the migration receipt
+- Direct user to the uploader: https://brianmusundi.github.io/Claude-Migrator/upload.html
+
+**During PHASE 6 (Verify):**
+- Use `google_drive_search` to confirm backup files exist in Drive
+- Use `google_drive_fetch` to read the [Claude Readable] Google Doc copies
+- Use `memory_user_edits(command="view")` to confirm memory was stored
+
+**In future conversations (post-migration):**
+- Use `google_drive_search(name contains 'Claude Readable')` to find backup docs
+- Use `google_drive_fetch` to read migration summaries
+- Check memory for the saved backup URL
+- Use Gmail tools for any email-related follow-ups
+
+---
+
 ## TROUBLESHOOTING
 
 | Problem | Fix |
