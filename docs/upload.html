@@ -86,6 +86,17 @@ input[type="file"]{display:none}
 .br .drl{background:linear-gradient(135deg,#e94560,#53a8b6);color:white}
 .br .cll{border:1px solid #53a8b6;color:#53a8b6}
 .br a:hover{opacity:0.85}
+
+/* Previous backups */
+.prev{background:#111118;border:1px solid #1a1a2e;border-radius:12px;padding:1.2rem;margin-top:1.2rem;display:none}
+.prev.v{display:block}
+.prev h4{font-size:0.82rem;color:#888;margin-bottom:0.8rem;text-align:center}
+.prev-list{display:flex;flex-direction:column;gap:0.4rem;max-height:200px;overflow-y:auto}
+.prev-item{display:flex;align-items:center;justify-content:space-between;padding:0.6rem 0.9rem;background:#0a0a0f;border:1px solid #1a1a2e;border-radius:8px;text-decoration:none;transition:all 0.15s}
+.prev-item:hover{border-color:#53a8b6;background:#0f1520}
+.prev-name{font-size:0.82rem;font-weight:500;color:#e0e0e8;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.prev-date{font-size:0.7rem;color:#555;font-family:'JetBrains Mono',monospace;flex-shrink:0;margin-left:0.8rem}
+
 .ft{margin-top:2rem;text-align:center;font-size:0.73rem;color:#444}
 </style>
 </head>
@@ -153,6 +164,12 @@ input[type="file"]{display:none}
       <a class="drl" id="flk" href="#" target="_blank">Open in Drive →</a>
       <a class="cll" href="https://claude.ai" target="_blank">Back to Claude ↩</a>
     </div>
+  </div>
+
+  <!-- Previous Backups -->
+  <div class="prev" id="prevBackups">
+    <h4>📂 Previous Backups</h4>
+    <div class="prev-list" id="prevList"></div>
   </div>
 
   <div class="ft">Claude Migrator — Built by St1ng3r254</div>
@@ -302,7 +319,34 @@ async function initFolder() {
     sessionFolderUrl = session.webViewLink || ('https://drive.google.com/drive/folders/' + session.id);
     sessionFolderName = name;
     setStatus('ok', 'Ready — saving to <a href="' + esc(sessionFolderUrl) + '" target="_blank">' + esc(name) + '</a>');
+    // List previous backups
+    listPreviousBackups(root.id);
   } catch (e) { setStatus('er', 'Folder error: ' + e.message); }
+}
+
+async function listPreviousBackups(rootId) {
+  try {
+    var q = "'" + rootId + "' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false";
+    var res = await driveApi('https://www.googleapis.com/drive/v3/files?q=' + encodeURIComponent(q) + '&fields=files(id,name,webViewLink,createdTime)&orderBy=createdTime desc&pageSize=20');
+    if (res.files && res.files.length > 1) { // >1 because current session is included
+      var prev = document.getElementById('prevBackups');
+      var list = document.getElementById('prevList');
+      var count = 0;
+      res.files.forEach(function(f) {
+        if (f.id === sessionFolderId) return; // skip current session
+        var link = f.webViewLink || ('https://drive.google.com/drive/folders/' + f.id);
+        var date = f.createdTime ? new Date(f.createdTime).toLocaleDateString('en-US', { year:'numeric', month:'short', day:'numeric', hour:'2-digit', minute:'2-digit' }) : '';
+        var item = document.createElement('a');
+        item.href = link;
+        item.target = '_blank';
+        item.className = 'prev-item';
+        item.innerHTML = '<span class="prev-name">' + esc(f.name) + '</span><span class="prev-date">' + esc(date) + '</span>';
+        list.appendChild(item);
+        count++;
+      });
+      if (count > 0) prev.classList.add('v');
+    }
+  } catch (e) { /* silently skip if listing fails */ }
 }
 
 function S(n) { return String(n).padStart(2, '0'); }

@@ -612,7 +612,22 @@ After all projects are recreated:
 
 Say: **"All [N] projects recreated. Your conversations within those projects don't transfer (they're archived in the files I gave you), but the project structure, instructions, and knowledge base are restored."**
 
-### Step 7: Final Report and Verify
+### Step 7: Save Backup Location to Memory
+
+After the Drive upload is complete and the user shares the folder link, **save it to memory** so Claude remembers where this user's backup is stored:
+
+```
+memory_user_edits(command="add", control="User's Claude migration backup: [Drive folder URL] — migrated on [date], [N] conversations, [N] memory edits")
+```
+
+This means in future conversations, if the user asks "where's my migration backup?" or "find my old chat about X", Claude can point them to the right Drive folder.
+
+Also save the uploader URL for reference:
+```
+memory_user_edits(command="add", control="Claude Migrator uploader: https://brianmusundi.github.io/Claude-Migrator/upload.html")
+```
+
+### Step 8: Final Report and Verify
 
 Show a complete summary:
 
@@ -622,12 +637,13 @@ MIGRATION COMPLETE
 ✅ Memory edits imported:    [N] facts added to this account
 ✅ Conversation archive:     [N] chats exported as Markdown
 ✅ Projects documented:      [N] projects (recreate from details above)
-✅ Drive backup:             [status — completed/skipped]
+✅ Drive backup:             [Drive folder URL]
+✅ Backup location saved:    Stored in memory for future reference
 
 Your context is now live in this account.
 ```
 
-Then say: **"To verify everything worked, start a brand new conversation and ask: 'What do you know about me?' Claude should reflect all the context we just imported."**
+Then say: **"To verify everything worked, start a brand new conversation and ask: 'What do you know about me?' Claude should reflect all the context we just imported. If you ever need your old conversations, just ask me — I've saved the Drive backup link to my memory."**
 
 ---
 
