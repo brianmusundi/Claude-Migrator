@@ -304,9 +304,31 @@ async function uploadToDrive(fileName, mimeType, blob, folderId) {
   var form = new FormData();
   form.append('metadata', new Blob([JSON.stringify(meta)], { type: 'application/json' }));
   form.append('file', blob);
-  return fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,webViewLink,size', {
+  var result = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,webViewLink,size', {
     method: 'POST', headers: { 'Authorization': 'Bearer ' + accessToken }, body: form
   }).then(function(r) { return r.json(); });
+
+  // For key text files, also create a Google Doc copy so Claude can read it via Drive API
+  var keyFiles = ['memory-summary.md', 'index.md', 'stats.md', 'projects.md'];
+  var baseName = fileName.split('/').pop();
+  if (keyFiles.includes(baseName) && blob.size < 1000000) {
+    try {
+      var text = await blob.text();
+      var docMeta = {
+        name: '[Claude Readable] ' + baseName.replace('.md', ''),
+        mimeType: 'application/vnd.google-apps.document',
+        parents: [folderId]
+      };
+      var docForm = new FormData();
+      docForm.append('metadata', new Blob([JSON.stringify(docMeta)], { type: 'application/json' }));
+      docForm.append('file', new Blob([text], { type: 'text/plain' }));
+      await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id', {
+        method: 'POST', headers: { 'Authorization': 'Bearer ' + accessToken }, body: docForm
+      });
+    } catch (e) { /* silently skip doc creation if it fails */ }
+  }
+
+  return result;
 }
 
 async function initFolder() {

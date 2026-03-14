@@ -627,7 +627,29 @@ Also save the uploader URL for reference:
 memory_user_edits(command="add", control="Claude Migrator uploader: https://brianmusundi.github.io/Claude-Migrator/upload.html")
 ```
 
-### Step 8: Final Report and Verify
+### Step 8: Accessing Previous Backups via Drive API
+
+Claude has read access to Google Drive. The uploader creates Google Doc copies of key files (memory-summary, index, stats, projects) alongside the raw Markdown files. This means Claude can search and read migration backups directly.
+
+**To find a user's previous backups, use google_drive_search:**
+```
+google_drive_search(api_query="name contains 'Claude Readable'", semantic_query="migration backup memory summary")
+```
+
+**To read a specific backup's contents:**
+```
+google_drive_fetch(document_ids=["<doc_id_from_search>"])
+```
+
+**When the user asks about old conversations or "where's my backup":**
+1. Check memory first — the backup URL should be stored there
+2. If not in memory, search Drive: `name contains 'Claude Readable' and name contains 'memory-summary'`
+3. Fetch the Google Doc version to read the content
+4. Give the user the Drive folder link
+
+The Google Doc copies are named `[Claude Readable] memory-summary`, `[Claude Readable] index`, etc. — making them easy to find and read via the Drive API.
+
+### Step 9: Final Report and Verify
 
 Show a complete summary:
 
@@ -639,11 +661,12 @@ MIGRATION COMPLETE
 ✅ Projects documented:      [N] projects (recreate from details above)
 ✅ Drive backup:             [Drive folder URL]
 ✅ Backup location saved:    Stored in memory for future reference
+✅ Claude-readable copies:   Key files saved as Google Docs for API access
 
 Your context is now live in this account.
 ```
 
-Then say: **"To verify everything worked, start a brand new conversation and ask: 'What do you know about me?' Claude should reflect all the context we just imported. If you ever need your old conversations, just ask me — I've saved the Drive backup link to my memory."**
+Then say: **"To verify everything worked, start a brand new conversation and ask: 'What do you know about me?' Claude should reflect all the context we just imported. If you ever need your old conversations, just ask me — I can search your Drive backup directly."**
 
 ---
 
