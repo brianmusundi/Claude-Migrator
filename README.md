@@ -433,6 +433,141 @@ Claude has these tools during migration. Use them proactively.
 
 ---
 
+## Process Flow Diagrams
+
+### High-Level Flow
+
+```mermaid
+flowchart LR
+    A["🔐 Source Account"] -->|"1. Export ZIP"| B["⚙️ Claude Validates"]
+    B -->|"2. Build Bundle"| C["📦 Migration Bundle"]
+    C -->|"3. Upload to Target"| D["🧠 Target Account"]
+    D -->|"4. Auto-Import"| E["✅ Done"]
+
+    style A fill:#1a1a2e,stroke:#e94560,color:#fff
+    style B fill:#16213e,stroke:#0f3460,color:#fff
+    style C fill:#0f3460,stroke:#53a8b6,color:#fff
+    style D fill:#1a1a2e,stroke:#e94560,color:#fff
+    style E fill:#53a8b6,stroke:#1a1a2e,color:#fff
+```
+
+### Detailed Process Flow
+
+```mermaid
+flowchart TD
+    START([🚀 Start]) --> Q{FROM or INTO\nthis account?}
+
+    Q -->|FROM| E1
+    Q -->|INTO / uploads file| D1
+
+    subgraph EXPORT ["Phase 1-4: Source Account"]
+        E1[Settings → Privacy → Export] --> E2[Upload ZIP to Claude]
+        E2 --> V1[Parse & Validate]
+        V1 --> V2[Run 6 Auto-Fixes]
+        V2 --> V3[Show Validation Report]
+        V3 --> B1[Generate conversation files]
+        B1 --> B2[Include real memory from memories.json]
+        B2 --> B3[Include projects from projects.json]
+        B3 --> B4[Embed SKILL.md + agents/tools-reference.md]
+        B4 --> B5[Create migration-bundle.zip]
+        B5 --> BK[Backup to Google Drive]
+        BK --> BK2[Draft Gmail receipt]
+        BK2 --> HAND([Give bundle to user])
+    end
+
+    subgraph IMPORT ["Phase 5-6: Target Account"]
+        D1{Bundle has\nSKILL.md?}
+        D1 -->|Yes: Bundle| I1[Read embedded SKILL.md]
+        D1 -->|No: Raw export| I0[Process from scratch] --> I1
+        I1 --> I2[Import memory via memory_user_edits]
+        I2 --> I3[Guide project recreation]
+        I3 --> I4[Backup to Drive]
+        I4 --> I5[Save backup URL to memory]
+        I5 --> I6[Verify: What do you know about me?]
+        I6 --> DONE([✅ Migration Complete])
+    end
+
+    HAND -->|"User takes bundle\nto target account"| D1
+
+    style START fill:#e94560,stroke:#1a1a2e,color:#fff
+    style DONE fill:#53a8b6,stroke:#1a1a2e,color:#fff
+    style HAND fill:#f0a500,stroke:#1a1a2e,color:#fff
+```
+
+### Self-Healing Pipeline
+
+```mermaid
+flowchart LR
+    subgraph AUTO_FIX ["🔧 6 Automatic Fixes"]
+        direction TB
+        F1["1️⃣ Unnamed Conversations\nAuto-title from first message"]
+        F2["2️⃣ Malformed Timestamps\nUnix, ISO, partial dates"]
+        F3["3️⃣ Structured Content\nFlatten text/tool/image/thinking blocks"]
+        F4["4️⃣ Duplicate Conversations\nMerge by UUID, keep longest"]
+        F5["5️⃣ Wrong Platform\nDetect ChatGPT/Gemini exports"]
+        F6["6️⃣ Encoding Issues\nUTF-8/Latin-1/CP1252 fallback"]
+    end
+
+    IN[/"Upload ZIP"/] --> AUTO_FIX --> OUT[/"Clean Output"/]
+
+    style IN fill:#e94560,stroke:#1a1a2e,color:#fff
+    style OUT fill:#53a8b6,stroke:#1a1a2e,color:#fff
+```
+
+### Migration Bundle Contents
+
+```mermaid
+flowchart TD
+    subgraph BUNDLE ["📦 migration-bundle.zip"]
+        direction TB
+        M["🧠 memory-summary.md\nFull Claude memory + topics + tools"]
+        I["📄 index.md\nConversation inventory"]
+        P["📂 projects.md\nProject details + instructions + knowledge files"]
+        S["📊 stats.md\nUsage statistics"]
+        C["💬 conversations/\nAll chat transcripts as Markdown"]
+        SK["⚙️ SKILL.md\nImport instructions for receiving Claude"]
+        AG["🤖 agents/tools-reference.md\nAll available tools documented"]
+    end
+
+    style BUNDLE fill:#16213e,stroke:#53a8b6,color:#fff
+```
+
+### What Gets Migrated
+
+| Data Type | Status | Method |
+|-----------|--------|--------|
+| Memory & Preferences | ✅ Auto-imported | `memory_user_edits` writes directly into target account |
+| Chat History (full text) | ✅ Archived | Markdown files in conversations/ folder |
+| Projects | ✅ Documented | Claude walks through recreation step by step |
+| Knowledge Files | ✅ Content preserved | Included in projects.md for re-upload |
+| Tool Usage Patterns | ✅ Documented | Recorded in stats and memory summary |
+| Import Instructions | ✅ Bundled | SKILL.md embedded in the ZIP |
+| Available Tools Reference | ✅ Bundled | agents/tools-reference.md in the ZIP |
+| Live Conversation Sessions | ❌ Not possible | Threads can't continue in new account |
+| File Attachments | ❌ Not in export | Anthropic doesn't include uploaded files |
+
+### Error Recovery
+
+```mermaid
+flowchart LR
+    subgraph ZIP_ERRORS ["ZIP Errors"]
+        ZE1["Corrupted"] -->|Auto| ZE1F["Extract what's salvageable"]
+        ZE2["Not a ZIP"] -->|Auto| ZE2F["Try as raw JSON"]
+    end
+
+    subgraph JSON_ERRORS ["JSON Errors"]
+        JE1["Truncated"] -->|Auto| JE1F["Close brackets, recover"]
+        JE2["Wrong encoding"] -->|Auto| JE2F["UTF-8→Latin-1→CP1252"]
+    end
+
+    subgraph IMPORT_ERRORS ["Import Errors"]
+        IE1["memory_user_edits\nnot available"] -->|Fallback| IE1F["Manual: Settings → Memory"]
+        IE2["Drive upload fails"] -->|Fallback| IE2F["Manual: drive.google.com"]
+    end
+```
+
+---
+
 ## About
 
 Built by St1ng3r254. MIT License.
