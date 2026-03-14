@@ -1,34 +1,34 @@
 /**
- * Claude Migrator — Google Drive Backup Uploader
+ * Claude Migrator — Google Drive Backup Uploader v3
  * 
- * A Google Apps Script web app that:
- * 1. Creates a "Claude Migration Backups" folder in the user's Drive
- * 2. Creates a date-stamped subfolder for each migration session
- * 3. Accepts ZIP files — extracts them client-side and uploads each file
- * 4. Also accepts individual files (Markdown, JSON, etc.)
- * 5. Drag-and-drop upload with progress tracking
+ * Features:
+ * - Shows logged-in Google account with avatar
+ * - Switch account button (redirects to Google account chooser)
+ * - Accepts ZIP files — extracts client-side via JSZip before uploading
+ * - Accepts individual files (Markdown, JSON, etc.)
+ * - Creates organized Drive folder structure
+ * - Generates shareable Drive folder link to paste back into Claude
+ * - Copy-to-clipboard for the folder link
  *
- * SETUP (one-time, 2 minutes):
- * 1. Go to https://script.google.com
- * 2. Click "New Project"
- * 3. Delete the default code and paste this entire file
- * 4. Click "Deploy" → "New deployment"
- * 5. Select type: "Web app"
- * 6. Set "Execute as": "Me"
- * 7. Set "Who has access": "Anyone in your organization" (or "Anyone")
- * 8. Click "Deploy"
- * 9. Authorize when prompted — click "Advanced" → "Go to (unsafe)" → "Allow"
- * 10. Copy the deployment URL — share with staff
+ * SETUP: See README at github.com/brianmusundi/Claude-Migrator
  */
 
 // ============================================================
-// BACKEND — Server-side Google Apps Script functions
+// BACKEND
 // ============================================================
 
 function doGet() {
   return HtmlService.createHtmlOutput(getUploadPage())
     .setTitle('Claude Migration Backup')
     .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
+}
+
+function getUserInfo() {
+  var email = Session.getActiveUser().getEmail();
+  return {
+    email: email,
+    initial: email ? email.charAt(0).toUpperCase() : '?'
+  };
 }
 
 function getRootFolder() {
@@ -41,7 +41,7 @@ function getRootFolder() {
 function createSessionFolder() {
   var root = getRootFolder();
   var now = new Date();
-  var dateStr = Utilities.formatDate(now, Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm');
+  var dateStr = Utilities.formatDate(now, Session.getScriptTimeZone(), 'yyyy-MM-dd HH-mm');
   var sessionName = 'Migration — ' + dateStr;
   var sessionFolder = root.createFolder(sessionName);
   return {
@@ -75,9 +75,19 @@ function uploadFile(data) {
   }
 }
 
+function shareFolderAnyone(folderId) {
+  try {
+    var folder = DriveApp.getFolderById(folderId);
+    folder.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+    return { success: true, url: folder.getUrl() };
+  } catch (e) {
+    return { success: false, error: e.toString() };
+  }
+}
+
 
 // ============================================================
-// FRONTEND — HTML page with JSZip for client-side extraction
+// FRONTEND
 // ============================================================
 
 function getUploadPage() {
@@ -89,130 +99,185 @@ function getUploadPage() {
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 <style>
   @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
-  * { margin: 0; padding: 0; box-sizing: border-box; }
-  body {
-    font-family: 'DM Sans', -apple-system, sans-serif;
-    background: #0a0a0f; color: #e0e0e8;
-    min-height: 100vh; display: flex; flex-direction: column;
-    align-items: center; padding: 2rem 1rem;
-  }
-  .container { max-width: 660px; width: 100%; }
-  .header { text-align: center; margin-bottom: 2rem; }
-  .header h1 {
-    font-size: 1.8rem; font-weight: 700;
-    background: linear-gradient(135deg, #e94560, #53a8b6);
-    -webkit-background-clip: text; -webkit-text-fill-color: transparent;
-    margin-bottom: 0.4rem;
-  }
-  .header p { color: #888; font-size: 0.95rem; }
+  *{margin:0;padding:0;box-sizing:border-box}
+  body{font-family:'DM Sans',-apple-system,sans-serif;background:#0a0a0f;color:#e0e0e8;min-height:100vh;display:flex;flex-direction:column;align-items:center;padding:2rem 1rem}
+  .container{max-width:660px;width:100%}
 
-  .status-bar {
-    background: #111118; border: 1px solid #1a1a2e; border-radius: 12px;
-    padding: 1rem 1.4rem; margin-bottom: 1.5rem;
-    display: flex; align-items: center; gap: 0.8rem;
-  }
-  .dot { width: 10px; height: 10px; border-radius: 50%; background: #53a8b6; flex-shrink: 0; }
-  .dot.pending { background: #f0a500; }
-  .dot.error { background: #e94560; }
-  .status-bar .text { font-size: 0.88rem; color: #bbb; }
-  .status-bar a { color: #53a8b6; text-decoration: none; font-weight: 500; }
-  .status-bar a:hover { text-decoration: underline; }
+  /* Header */
+  .header{text-align:center;margin-bottom:1.5rem}
+  .header h1{font-size:1.8rem;font-weight:700;background:linear-gradient(135deg,#e94560,#53a8b6);-webkit-background-clip:text;-webkit-text-fill-color:transparent;margin-bottom:0.3rem}
+  .header p{color:#888;font-size:0.92rem}
 
-  .drop-zone {
-    border: 2px dashed #2a2a3e; border-radius: 16px;
-    padding: 3rem 2rem; text-align: center; cursor: pointer;
-    transition: all 0.2s; margin-bottom: 1.5rem; background: #0d0d14;
+  /* Account bar */
+  .account-bar{
+    background:#111118;border:1px solid #1a1a2e;border-radius:12px;
+    padding:0.8rem 1.2rem;margin-bottom:1rem;
+    display:flex;align-items:center;gap:0.8rem;
   }
-  .drop-zone:hover, .drop-zone.dragover { border-color: #53a8b6; background: #0f1520; }
-  .drop-zone .icon { font-size: 2.5rem; margin-bottom: 0.8rem; }
-  .drop-zone h3 { font-size: 1.1rem; font-weight: 600; margin-bottom: 0.4rem; }
-  .drop-zone p { font-size: 0.85rem; color: #888; }
-  .drop-zone .zip-note {
-    margin-top: 0.8rem; font-size: 0.8rem; color: #53a8b6;
-    background: #53a8b610; padding: 0.5rem 1rem; border-radius: 8px;
-    display: inline-block;
+  .avatar{
+    width:36px;height:36px;border-radius:50%;
+    background:linear-gradient(135deg,#e94560,#53a8b6);
+    display:flex;align-items:center;justify-content:center;
+    font-weight:700;font-size:0.95rem;color:#fff;flex-shrink:0;
   }
-  .drop-zone.uploading { pointer-events: none; opacity: 0.7; }
-  input[type="file"] { display: none; }
+  .account-info{flex:1;min-width:0}
+  .account-info .label{font-size:0.7rem;color:#666;text-transform:uppercase;letter-spacing:0.05em}
+  .account-info .email{font-size:0.88rem;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .switch-btn{
+    font-family:'DM Sans',sans-serif;font-size:0.78rem;font-weight:600;
+    padding:0.4rem 0.9rem;border-radius:8px;border:1px solid #2a2a3e;
+    background:transparent;color:#53a8b6;cursor:pointer;
+    transition:all 0.15s;white-space:nowrap;
+  }
+  .switch-btn:hover{background:#53a8b615;border-color:#53a8b6}
 
-  .progress-section {
-    background: #111118; border: 1px solid #1a1a2e; border-radius: 12px;
-    padding: 1.2rem; margin-bottom: 1rem; display: none;
+  /* Status */
+  .status-bar{
+    background:#111118;border:1px solid #1a1a2e;border-radius:12px;
+    padding:0.8rem 1.2rem;margin-bottom:1.2rem;
+    display:flex;align-items:center;gap:0.7rem;
   }
-  .progress-section.visible { display: block; }
-  .progress-section h4 { font-size: 0.85rem; color: #888; margin-bottom: 0.6rem; }
-  .progress-bar { width: 100%; height: 6px; background: #1a1a2e; border-radius: 3px; overflow: hidden; }
-  .progress-bar .fill {
-    height: 100%; background: linear-gradient(90deg, #e94560, #53a8b6);
-    border-radius: 3px; transition: width 0.3s; width: 0%;
-  }
-  .progress-text {
-    font-family: 'JetBrains Mono', monospace; font-size: 0.75rem;
-    color: #666; margin-top: 0.4rem; text-align: right;
-  }
+  .dot{width:9px;height:9px;border-radius:50%;background:#53a8b6;flex-shrink:0}
+  .dot.pending{background:#f0a500}
+  .dot.error{background:#e94560}
+  .status-bar .text{font-size:0.84rem;color:#bbb}
+  .status-bar a{color:#53a8b6;text-decoration:none;font-weight:500}
+  .status-bar a:hover{text-decoration:underline}
 
-  .file-list { display: flex; flex-direction: column; gap: 0.4rem; margin-bottom: 1.5rem; max-height: 300px; overflow-y: auto; }
-  .file-item {
-    background: #111118; border: 1px solid #1a1a2e; border-radius: 8px;
-    padding: 0.6rem 1rem; display: flex; align-items: center;
-    gap: 0.6rem; font-size: 0.82rem;
+  /* Drop zone */
+  .drop-zone{
+    border:2px dashed #2a2a3e;border-radius:16px;padding:2.5rem 2rem;
+    text-align:center;cursor:pointer;transition:all 0.2s;
+    margin-bottom:1.2rem;background:#0d0d14;
   }
-  .file-item .name { flex: 1; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .file-item .size { color: #666; font-family: 'JetBrains Mono', monospace; font-size: 0.7rem; flex-shrink: 0; }
-  .file-item .si { flex-shrink: 0; }
-  .si.done { color: #53a8b6; }
-  .si.error { color: #e94560; }
-  .si.pending { color: #f0a500; }
+  .drop-zone:hover,.drop-zone.dragover{border-color:#53a8b6;background:#0f1520}
+  .drop-zone .icon{font-size:2.2rem;margin-bottom:0.6rem}
+  .drop-zone h3{font-size:1.05rem;font-weight:600;margin-bottom:0.3rem}
+  .drop-zone p{font-size:0.82rem;color:#888}
+  .zip-note{
+    margin-top:0.7rem;font-size:0.78rem;color:#53a8b6;
+    background:#53a8b610;padding:0.4rem 0.9rem;border-radius:8px;
+    display:inline-block;
+  }
+  .drop-zone.uploading{pointer-events:none;opacity:0.6}
+  input[type="file"]{display:none}
 
-  .summary {
-    background: #111118; border: 1px solid #1a1a2e; border-radius: 12px;
-    padding: 1.4rem; text-align: center; display: none;
+  /* Progress */
+  .progress-section{background:#111118;border:1px solid #1a1a2e;border-radius:12px;padding:1rem;margin-bottom:0.8rem;display:none}
+  .progress-section.visible{display:block}
+  .progress-section h4{font-size:0.82rem;color:#888;margin-bottom:0.5rem}
+  .pbar{width:100%;height:5px;background:#1a1a2e;border-radius:3px;overflow:hidden}
+  .pbar .fill{height:100%;background:linear-gradient(90deg,#e94560,#53a8b6);border-radius:3px;transition:width 0.3s;width:0%}
+  .ptxt{font-family:'JetBrains Mono',monospace;font-size:0.72rem;color:#666;margin-top:0.3rem;text-align:right}
+
+  /* File list */
+  .file-list{display:flex;flex-direction:column;gap:0.35rem;margin-bottom:1.2rem;max-height:250px;overflow-y:auto}
+  .file-item{
+    background:#111118;border:1px solid #1a1a2e;border-radius:8px;
+    padding:0.5rem 0.9rem;display:flex;align-items:center;
+    gap:0.6rem;font-size:0.8rem;
   }
-  .summary.visible { display: block; }
-  .summary h3 { color: #53a8b6; font-size: 1rem; margin-bottom: 0.6rem; }
-  .summary p { font-size: 0.85rem; color: #999; line-height: 1.5; }
-  .summary .folder-link {
-    display: inline-block; margin-top: 0.8rem; padding: 0.6rem 1.4rem;
-    background: linear-gradient(135deg, #e94560, #53a8b6);
-    color: white; text-decoration: none; border-radius: 8px;
-    font-weight: 600; font-size: 0.9rem; transition: opacity 0.2s;
+  .file-item .name{flex:1;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .file-item .size{color:#555;font-family:'JetBrains Mono',monospace;font-size:0.68rem;flex-shrink:0}
+  .si{flex-shrink:0}
+  .si.done{color:#53a8b6}.si.error{color:#e94560}.si.pending{color:#f0a500}
+
+  /* Summary */
+  .summary{background:#111118;border:1px solid #1a1a2e;border-radius:12px;padding:1.4rem;text-align:center;display:none}
+  .summary.visible{display:block}
+  .summary h3{color:#53a8b6;font-size:1rem;margin-bottom:0.5rem}
+  .summary p{font-size:0.84rem;color:#999;line-height:1.5}
+
+  .link-box{
+    margin-top:1rem;background:#0a0a0f;border:1px solid #1a1a2e;
+    border-radius:10px;padding:0.8rem 1rem;display:flex;align-items:center;gap:0.6rem;
   }
-  .summary .folder-link:hover { opacity: 0.85; }
-  .footer { margin-top: 2rem; text-align: center; font-size: 0.75rem; color: #444; }
+  .link-box input{
+    flex:1;background:transparent;border:none;color:#53a8b6;
+    font-family:'JetBrains Mono',monospace;font-size:0.78rem;
+    outline:none;overflow:hidden;text-overflow:ellipsis;
+  }
+  .copy-btn{
+    font-family:'DM Sans',sans-serif;font-size:0.75rem;font-weight:600;
+    padding:0.35rem 0.8rem;border-radius:6px;border:1px solid #53a8b6;
+    background:transparent;color:#53a8b6;cursor:pointer;
+    transition:all 0.15s;white-space:nowrap;
+  }
+  .copy-btn:hover{background:#53a8b620}
+  .copy-btn.copied{background:#53a8b6;color:#0a0a0f;border-color:#53a8b6}
+
+  .btn-row{display:flex;gap:0.6rem;justify-content:center;margin-top:1rem;flex-wrap:wrap}
+  .folder-link,.claude-link{
+    display:inline-block;padding:0.55rem 1.2rem;border-radius:8px;
+    font-weight:600;font-size:0.85rem;text-decoration:none;transition:opacity 0.2s;
+  }
+  .folder-link{background:linear-gradient(135deg,#e94560,#53a8b6);color:white}
+  .folder-link:hover{opacity:0.85}
+  .claude-link{border:1px solid #53a8b6;color:#53a8b6;background:transparent}
+  .claude-link:hover{background:#53a8b615}
+
+  .hint{font-size:0.75rem;color:#555;margin-top:0.8rem}
+  .footer{margin-top:2rem;text-align:center;font-size:0.73rem;color:#444}
 </style>
 </head>
 <body>
 <div class="container">
+
   <div class="header">
     <h1>Claude Migration Backup</h1>
-    <p>Drop your export files or ZIP here to save them to Google Drive</p>
+    <p>Upload your Claude export to Google Drive</p>
   </div>
 
+  <!-- Account Bar -->
+  <div class="account-bar" id="accountBar">
+    <div class="avatar" id="avatar">?</div>
+    <div class="account-info">
+      <div class="label">Logged in as</div>
+      <div class="email" id="accountEmail">Loading...</div>
+    </div>
+    <button class="switch-btn" id="switchBtn" onclick="switchAccount()">Switch Account</button>
+  </div>
+
+  <!-- Status -->
   <div class="status-bar" id="statusBar">
     <div class="dot pending" id="statusDot"></div>
-    <div class="text" id="statusText">Initializing — creating backup folder...</div>
+    <div class="text" id="statusText">Initializing...</div>
   </div>
 
+  <!-- Drop zone -->
   <div class="drop-zone" id="dropZone">
     <div class="icon">📁</div>
     <h3>Drag & drop files here</h3>
     <p>or click to browse</p>
     <div class="zip-note">📦 ZIP files are automatically extracted before uploading</div>
   </div>
-  <input type="file" id="fileInput" multiple accept=".zip,.md,.json,.txt,.csv,*/*">
+  <input type="file" id="fileInput" multiple>
 
+  <!-- Progress -->
   <div class="progress-section" id="progressSection">
-    <h4 id="progressLabel">Extracting ZIP...</h4>
-    <div class="progress-bar"><div class="fill" id="progressFill"></div></div>
-    <div class="progress-text" id="progressText">0 / 0</div>
+    <h4 id="progressLabel">Processing...</h4>
+    <div class="pbar"><div class="fill" id="progressFill"></div></div>
+    <div class="ptxt" id="progressText">0 / 0</div>
   </div>
 
+  <!-- File list -->
   <div class="file-list" id="fileList"></div>
 
+  <!-- Summary -->
   <div class="summary" id="summary">
     <h3>✅ All files backed up</h3>
     <p id="summaryText"></p>
-    <a class="folder-link" id="folderLink" href="#" target="_blank">Open in Google Drive →</a>
+
+    <div class="link-box">
+      <input type="text" id="folderLinkInput" readonly value="">
+      <button class="copy-btn" id="copyBtn" onclick="copyLink()">Copy Link</button>
+    </div>
+    <div class="hint">📋 Copy this link and paste it back into Claude so it knows where your backup is</div>
+
+    <div class="btn-row">
+      <a class="folder-link" id="folderLink" href="#" target="_blank">Open in Drive →</a>
+      <a class="claude-link" href="https://claude.ai" target="_blank">Back to Claude ↩</a>
+    </div>
   </div>
 
   <div class="footer">Claude Migrator — Built by St1ng3r254</div>
@@ -222,16 +287,25 @@ function getUploadPage() {
 let sessionFolder = null;
 let uploadedCount = 0;
 let totalFiles = 0;
-let uploadQueue = [];
-let isProcessing = false;
 
-// Init — create session folder
+// Load user info
+google.script.run
+  .withSuccessHandler(function(user) {
+    document.getElementById('accountEmail').textContent = user.email || 'Unknown';
+    document.getElementById('avatar').textContent = user.initial || '?';
+  })
+  .withFailureHandler(function() {
+    document.getElementById('accountEmail').textContent = 'Could not load account';
+  })
+  .getUserInfo();
+
+// Create session folder
 google.script.run
   .withSuccessHandler(function(folder) {
     sessionFolder = folder;
     document.getElementById('statusDot').className = 'dot';
     document.getElementById('statusText').innerHTML =
-      'Ready — backup folder: <a href="' + folder.rootUrl + '" target="_blank">Claude Migration Backups</a> / ' + folder.folderName;
+      'Ready — saving to: <a href="' + esc(folder.rootUrl) + '" target="_blank">Claude Migration Backups</a> / ' + esc(folder.folderName);
   })
   .withFailureHandler(function(err) {
     document.getElementById('statusDot').className = 'dot error';
@@ -239,10 +313,16 @@ google.script.run
   })
   .createSessionFolder();
 
+// Switch account — redirect to Google's account chooser then back here
+function switchAccount() {
+  var currentUrl = encodeURIComponent(window.location.href);
+  // This prompts Google to show the account picker
+  window.top.location.href = 'https://accounts.google.com/AccountChooser?continue=' + currentUrl;
+}
+
 // Drop zone
 var dropZone = document.getElementById('dropZone');
 var fileInput = document.getElementById('fileInput');
-
 dropZone.addEventListener('click', function() { fileInput.click(); });
 dropZone.addEventListener('dragover', function(e) { e.preventDefault(); dropZone.classList.add('dragover'); });
 dropZone.addEventListener('dragleave', function() { dropZone.classList.remove('dragover'); });
@@ -250,34 +330,27 @@ dropZone.addEventListener('drop', function(e) { e.preventDefault(); dropZone.cla
 fileInput.addEventListener('change', function() { handleFiles(fileInput.files); });
 
 async function handleFiles(files) {
-  if (!sessionFolder) { alert('Still initializing — please wait a moment.'); return; }
+  if (!sessionFolder) { alert('Still initializing — wait a moment.'); return; }
   dropZone.classList.add('uploading');
-
   var allFiles = [];
 
   for (var i = 0; i < files.length; i++) {
     var file = files[i];
-
     if (file.name.endsWith('.zip') || file.type === 'application/zip' || file.type === 'application/x-zip-compressed') {
-      // Extract ZIP client-side
       showProgress('Extracting ' + file.name + '...', 0, 1);
       try {
         var zip = await JSZip.loadAsync(file);
         var entries = Object.keys(zip.files);
         var extracted = 0;
-
         for (var j = 0; j < entries.length; j++) {
           var entry = zip.files[entries[j]];
-          if (entry.dir) continue; // skip directories
-
+          if (entry.dir) continue;
           var blob = await entry.async('blob');
-          var extractedFile = new File([blob], entry.name, { type: guessMime(entry.name) });
-          allFiles.push({ file: extractedFile, subfolder: getSubfolder(entry.name) });
+          var ef = new File([blob], entry.name, { type: guessMime(entry.name) });
+          allFiles.push({ file: ef, subfolder: getSubfolder(entry.name) });
           extracted++;
           showProgress('Extracting ' + file.name + '...', extracted, entries.length);
         }
-
-        showProgress('Extracted ' + extracted + ' files from ' + file.name, extracted, extracted);
       } catch (err) {
         addFileItem(file.name, 0, 'error', 'ZIP extraction failed: ' + err);
       }
@@ -286,34 +359,25 @@ async function handleFiles(files) {
     }
   }
 
-  // Upload all files
   totalFiles += allFiles.length;
   showProgress('Uploading to Google Drive...', 0, allFiles.length);
-
   var subfolderCache = {};
 
   for (var k = 0; k < allFiles.length; k++) {
     var item = allFiles[k];
     var targetFolderId = sessionFolder.folderId;
-
-    // Create subfolders for ZIP directory structure
     if (item.subfolder) {
       if (!subfolderCache[item.subfolder]) {
         try {
           var sf = await new Promise(function(resolve, reject) {
-            google.script.run
-              .withSuccessHandler(resolve)
-              .withFailureHandler(reject)
+            google.script.run.withSuccessHandler(resolve).withFailureHandler(reject)
               .createSubfolder(sessionFolder.folderId, item.subfolder);
           });
           subfolderCache[item.subfolder] = sf.folderId;
-        } catch (e) {
-          subfolderCache[item.subfolder] = sessionFolder.folderId;
-        }
+        } catch (e) { subfolderCache[item.subfolder] = sessionFolder.folderId; }
       }
       targetFolderId = subfolderCache[item.subfolder];
     }
-
     await uploadSingleFile(item.file, targetFolderId, k + 1, allFiles.length);
   }
 
@@ -324,29 +388,24 @@ async function handleFiles(files) {
 function uploadSingleFile(file, folderId, current, total) {
   return new Promise(function(resolve) {
     var itemEl = addFileItem(file.name, file.size, 'pending', '');
-
     var reader = new FileReader();
     reader.onload = function(e) {
       var base64 = e.target.result.split(',')[1];
       google.script.run
         .withSuccessHandler(function(result) {
-          if (result.success) {
-            setFileStatus(itemEl, 'done', '✅');
-          } else {
-            setFileStatus(itemEl, 'error', '❌ ' + result.error);
-          }
+          setFileStatus(itemEl, result.success ? 'done' : 'error', result.success ? '✅' : '❌');
           uploadedCount++;
           showProgress('Uploading to Google Drive...', uploadedCount, total);
           resolve();
         })
-        .withFailureHandler(function(err) {
+        .withFailureHandler(function() {
           setFileStatus(itemEl, 'error', '❌');
           uploadedCount++;
           showProgress('Uploading to Google Drive...', uploadedCount, total);
           resolve();
         })
         .uploadFile({
-          fileName: file.name.split('/').pop(), // strip path, keep filename
+          fileName: file.name.split('/').pop(),
           mimeType: file.type || 'application/octet-stream',
           content: base64,
           folderId: folderId
@@ -356,74 +415,77 @@ function uploadSingleFile(file, folderId, current, total) {
   });
 }
 
+function checkComplete() {
+  if (uploadedCount >= totalFiles && totalFiles > 0) {
+    document.getElementById('progressSection').classList.remove('visible');
+    var summary = document.getElementById('summary');
+    summary.classList.add('visible');
+    document.getElementById('summaryText').textContent =
+      uploadedCount + ' file(s) saved to "' + sessionFolder.folderName + '"';
+    document.getElementById('folderLinkInput').value = sessionFolder.folderUrl;
+    document.getElementById('folderLink').href = sessionFolder.folderUrl;
+  }
+}
+
+function copyLink() {
+  var input = document.getElementById('folderLinkInput');
+  input.select();
+  document.execCommand('copy');
+  var btn = document.getElementById('copyBtn');
+  btn.textContent = 'Copied!';
+  btn.classList.add('copied');
+  setTimeout(function() { btn.textContent = 'Copy Link'; btn.classList.remove('copied'); }, 2000);
+}
+
 function getSubfolder(entryName) {
   var parts = entryName.split('/');
-  if (parts.length > 1) return parts[0]; // e.g. "conversations/file.md" → "conversations"
-  return null;
+  return parts.length > 1 ? parts[0] : null;
 }
 
 function guessMime(name) {
   var ext = name.split('.').pop().toLowerCase();
-  var map = {
-    'md': 'text/markdown', 'json': 'application/json', 'txt': 'text/plain',
-    'csv': 'text/csv', 'html': 'text/html', 'pdf': 'application/pdf',
-    'png': 'image/png', 'jpg': 'image/jpeg', 'jpeg': 'image/jpeg',
-    'zip': 'application/zip', 'docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-    'xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-    'pptx': 'application/vnd.openxmlformats-officedocument.presentationml.presentation'
-  };
-  return map[ext] || 'application/octet-stream';
+  return {
+    md:'text/markdown', json:'application/json', txt:'text/plain',
+    csv:'text/csv', html:'text/html', pdf:'application/pdf',
+    png:'image/png', jpg:'image/jpeg', jpeg:'image/jpeg',
+    zip:'application/zip',
+    docx:'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    xlsx:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    pptx:'application/vnd.openxmlformats-officedocument.presentationml.presentation'
+  }[ext] || 'application/octet-stream';
 }
 
 function showProgress(label, current, total) {
-  var section = document.getElementById('progressSection');
-  section.classList.add('visible');
+  var s = document.getElementById('progressSection'); s.classList.add('visible');
   document.getElementById('progressLabel').textContent = label;
-  document.getElementById('progressFill').style.width = (total > 0 ? (current / total * 100) : 0) + '%';
+  document.getElementById('progressFill').style.width = (total > 0 ? (current/total*100) : 0) + '%';
   document.getElementById('progressText').textContent = current + ' / ' + total;
 }
 
-function addFileItem(name, size, status, errorMsg) {
-  var item = document.createElement('div');
-  item.className = 'file-item';
-  var icon = status === 'done' ? '✅' : status === 'error' ? '❌' : '⏳';
-  var cls = status === 'done' ? 'done' : status === 'error' ? 'error' : 'pending';
-  item.innerHTML =
-    '<span class="si ' + cls + '">' + icon + '</span>' +
-    '<span class="name">' + escapeHtml(name.split('/').pop()) + (errorMsg ? ' — ' + escapeHtml(errorMsg) : '') + '</span>' +
-    '<span class="size">' + formatSize(size) + '</span>';
+function addFileItem(name, size, status, err) {
+  var item = document.createElement('div'); item.className = 'file-item';
+  var icon = status==='done'?'✅':status==='error'?'❌':'⏳';
+  var cls = status==='done'?'done':status==='error'?'error':'pending';
+  item.innerHTML = '<span class="si '+cls+'">'+icon+'</span>'
+    +'<span class="name">'+esc(name.split('/').pop())+(err?' — '+esc(err):'')+'</span>'
+    +'<span class="size">'+fmtSize(size)+'</span>';
   document.getElementById('fileList').appendChild(item);
   return item;
 }
 
-function setFileStatus(itemEl, status, icon) {
-  var si = itemEl.querySelector('.si');
-  si.textContent = icon;
-  si.className = 'si ' + status;
+function setFileStatus(el, status, icon) {
+  var si = el.querySelector('.si'); si.textContent = icon; si.className = 'si ' + status;
 }
 
-function checkComplete() {
-  if (uploadedCount >= totalFiles && totalFiles > 0) {
-    var summary = document.getElementById('summary');
-    summary.classList.add('visible');
-    document.getElementById('summaryText').textContent =
-      uploadedCount + ' file(s) saved to Google Drive in "' + sessionFolder.folderName + '"';
-    document.getElementById('folderLink').href = sessionFolder.folderUrl;
-    document.getElementById('progressSection').classList.remove('visible');
-  }
+function fmtSize(b) {
+  if(!b) return '';
+  if(b<1024) return b+' B';
+  if(b<1048576) return (b/1024).toFixed(1)+' KB';
+  return (b/1048576).toFixed(1)+' MB';
 }
 
-function formatSize(bytes) {
-  if (!bytes) return '';
-  if (bytes < 1024) return bytes + ' B';
-  if (bytes < 1048576) return (bytes / 1024).toFixed(1) + ' KB';
-  return (bytes / 1048576).toFixed(1) + ' MB';
-}
-
-function escapeHtml(s) {
-  var d = document.createElement('div');
-  d.textContent = s;
-  return d.innerHTML;
+function esc(s) {
+  var d = document.createElement('div'); d.textContent = s; return d.innerHTML;
 }
 </script>
 </body>
