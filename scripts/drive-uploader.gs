@@ -25,7 +25,7 @@
 // ============================================================
 // CONFIG — Replace this with your OAuth Client ID
 // ============================================================
-var CLIENT_ID = 'YOUR_CLIENT_ID_HERE.apps.googleusercontent.com';
+var CLIENT_ID = '140020498812-om5c4gvnqgn40f0k2h1oj4p23f1m4458.apps.googleusercontent.com';
 
 // ============================================================
 // BACKEND — Only serves the HTML page
