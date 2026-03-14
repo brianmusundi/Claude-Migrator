@@ -531,42 +531,74 @@ If the project has custom instructions, add those too:
 memory_user_edits(command="add", control="Project '[Name]' custom instructions: [instructions]")
 ```
 
-### Step 5: Report what was imported
+### Step 5: Backup Conversations to Google Drive
 
-After all edits are done, show the user a summary:
+After all memory edits are done, **present all output files for download** (index.md, memory-summary.md, projects.md, stats.md, and the conversations folder).
 
-**"Migration complete. Here's what I set up in this account:"**
+Then walk the user through backing up to Google Drive:
+
+Say: **"I've generated your conversation archive. Let's back it up to Google Drive so you can search your old chats anytime. Here's what to do:"**
+
+**"Step 1:** Download the files I just generated — click the download buttons above."**
+
+**"Step 2:** Open [drive.google.com](https://drive.google.com)"**
+
+**"Step 3:** Create a new folder called `Claude Migration Backup - [date]`"**
+
+**"Step 4:** Drag and drop all the downloaded files into that folder."**
+
+**"Step 5:** If you want your team to access it, right-click the folder → Share → add your team email."**
+
+Wait for the user to confirm they've done this. If they say they don't want to do Drive backup, skip it — it's optional.
+
+**Alternative — Email the archive:**
+If the user prefers email, use `gmail_create_draft` to draft an email to themselves with a summary of what was migrated and a reminder to save the downloaded files:
 
 ```
-IMPORT SUMMARY
-═══════════════
-✅ Memory edits added: [N]
-✅ Projects referenced: [N]
-📁 Conversation archive: [N] files (download below)
-
-Your memory is now active in this account. Claude will remember
-this context in all future conversations.
+gmail_create_draft(
+    to="[user's email]",
+    subject="Claude Migration Backup - [date]",
+    body="Your Claude account migration is complete.\n\nMemory edits imported: [N]\nConversations archived: [N]\nProjects documented: [N]\n\nPlease save the downloaded conversation files to Google Drive for long-term access.\n\nFiles included:\n- index.md (master conversation list)\n- memory-summary.md (imported memory)\n- projects.md (project details for recreation)\n- stats.md (usage statistics)\n- conversations/ folder ([N] chat transcripts)"
+)
 ```
 
-Then present the conversation archive files (index.md + conversations folder) for download.
+### Step 6: Recreate Projects
 
-### Step 6: Project recreation guidance
+Projects are saved per-account in Claude — they don't transfer between accounts. The export gives us the full project details so we can walk the user through recreating them.
 
-If projects were found, say:
+For each project found in the export (excluding starter projects), **guide the user through recreation step by step:**
 
-**"I've added your project context to memory, but Claude can't automatically create Projects in the UI. For each project you need to recreate:"**
+Say: **"You had [N] project(s) in your old account. I'll help you recreate each one. Let's start with '[Project Name]'."**
 
-Then list each project with:
-1. Name
-2. Description
-3. Custom instructions (if any)
-4. Knowledge files to re-upload (if any)
+Then for each project:
 
-Say: **"Go to claude.ai → Projects → New Project for each one. I've saved the details in projects.md for reference."**
+1. Say: **"Go to claude.ai → click 'Projects' in the sidebar → click 'Create Project'"**
+2. Say: **"Set the name to: [project name]"**
+3. Say: **"Set the description to: [project description]"**
+4. If the project had custom instructions: Say: **"Click 'Set custom instructions' and paste this:"** then provide the custom instructions text.
+5. If the project had knowledge files: Say: **"Now upload these knowledge files to the project:"** then list each file name. If the file content was preserved in the export, offer to recreate it: **"I have the content of [filename] from your export. Want me to create it so you can download and upload it to the project?"**
+6. Confirm: **"Is [project name] set up? Let's move to the next one."**
 
-### Step 7: Verify
+After all projects are recreated:
 
-Say: **"Your migration is done. To verify, start a fresh conversation and ask me 'What do you know about me?' — I should have full context about your work, projects, and preferences."**
+Say: **"All [N] projects recreated. Your conversations within those projects don't transfer (they're archived in the files I gave you), but the project structure, instructions, and knowledge base are restored."**
+
+### Step 7: Final Report and Verify
+
+Show a complete summary:
+
+```
+MIGRATION COMPLETE
+══════════════════════════════════════
+✅ Memory edits imported:    [N] facts added to this account
+✅ Conversation archive:     [N] chats exported as Markdown
+✅ Projects documented:      [N] projects (recreate from details above)
+✅ Drive backup:             [status — completed/skipped]
+
+Your context is now live in this account.
+```
+
+Then say: **"To verify everything worked, start a brand new conversation and ask: 'What do you know about me?' Claude should reflect all the context we just imported."**
 
 ---
 
