@@ -1,16 +1,24 @@
 /**
- * Claude Migrator — Google Drive Backup Uploader v3
+ * Claude Migrator — Google Drive Backup Uploader v4
  * 
- * Features:
- * - Shows logged-in Google account with avatar
- * - Switch account button (redirects to Google account chooser)
- * - Accepts ZIP files — extracts client-side via JSZip before uploading
- * - Accepts individual files (Markdown, JSON, etc.)
- * - Creates organized Drive folder structure
- * - Generates shareable Drive folder link to paste back into Claude
- * - Copy-to-clipboard for the folder link
+ * CRITICAL DEPLOYMENT SETTING:
+ * ============================
+ * Set "Execute as": "User accessing the web app"  (NOT "Me")
+ * Set "Who has access": "Anyone" or "Anyone in your organization"
  *
- * SETUP: See README at github.com/brianmusundi/Claude-Migrator
+ * This ensures:
+ * - Each staff member sees THEIR OWN email (personal or work)
+ * - Files go to THEIR OWN Google Drive
+ * - They authorize with their own account
+ * - Works with both @gmail.com and custom domain accounts
+ *
+ * SETUP:
+ * 1. Go to https://script.google.com → New Project
+ * 2. Paste this entire file
+ * 3. Deploy → New deployment → Web app
+ * 4. Execute as: "User accessing the web app"  ← IMPORTANT
+ * 5. Who has access: "Anyone"
+ * 6. Deploy → Authorize → Copy URL
  */
 
 // ============================================================
@@ -24,10 +32,15 @@ function doGet() {
 }
 
 function getUserInfo() {
-  var email = Session.getActiveUser().getEmail();
+  // getEffectiveUser() returns the person actually using the app
+  // getActiveUser() can return blank for external users when "Execute as: Me"
+  var effective = Session.getEffectiveUser().getEmail();
+  var active = Session.getActiveUser().getEmail();
+  var email = effective || active || '';
   return {
     email: email,
-    initial: email ? email.charAt(0).toUpperCase() : '?'
+    initial: email ? email.charAt(0).toUpperCase() : '?',
+    domain: email ? email.split('@')[1] : ''
   };
 }
 
@@ -40,9 +53,10 @@ function getRootFolder() {
 
 function createSessionFolder() {
   var root = getRootFolder();
+  var user = Session.getEffectiveUser().getEmail() || Session.getActiveUser().getEmail() || 'unknown';
   var now = new Date();
   var dateStr = Utilities.formatDate(now, Session.getScriptTimeZone(), 'yyyy-MM-dd HH-mm');
-  var sessionName = 'Migration — ' + dateStr;
+  var sessionName = 'Migration — ' + user.split('@')[0] + ' — ' + dateStr;
   var sessionFolder = root.createFolder(sessionName);
   return {
     folderId: sessionFolder.getId(),
@@ -103,7 +117,6 @@ function getUploadPage() {
   body{font-family:'DM Sans',-apple-system,sans-serif;background:#0a0a0f;color:#e0e0e8;min-height:100vh;display:flex;flex-direction:column;align-items:center;padding:2rem 1rem}
   .container{max-width:660px;width:100%}
 
-  /* Header */
   .header{text-align:center;margin-bottom:1.5rem}
   .header h1{font-size:1.8rem;font-weight:700;background:linear-gradient(135deg,#e94560,#53a8b6);-webkit-background-clip:text;-webkit-text-fill-color:transparent;margin-bottom:0.3rem}
   .header p{color:#888;font-size:0.92rem}
@@ -115,17 +128,23 @@ function getUploadPage() {
     display:flex;align-items:center;gap:0.8rem;
   }
   .avatar{
-    width:36px;height:36px;border-radius:50%;
+    width:38px;height:38px;border-radius:50%;
     background:linear-gradient(135deg,#e94560,#53a8b6);
     display:flex;align-items:center;justify-content:center;
-    font-weight:700;font-size:0.95rem;color:#fff;flex-shrink:0;
+    font-weight:700;font-size:1rem;color:#fff;flex-shrink:0;
   }
   .account-info{flex:1;min-width:0}
-  .account-info .label{font-size:0.7rem;color:#666;text-transform:uppercase;letter-spacing:0.05em}
-  .account-info .email{font-size:0.88rem;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .account-info .label{font-size:0.68rem;color:#666;text-transform:uppercase;letter-spacing:0.06em;margin-bottom:0.1rem}
+  .account-info .email{font-size:0.88rem;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .account-info .domain-tag{
+    display:inline-block;font-size:0.65rem;font-weight:600;
+    padding:0.15rem 0.5rem;border-radius:4px;margin-top:0.2rem;
+    background:#53a8b615;color:#53a8b6;border:1px solid #53a8b630;
+  }
+  .account-info .domain-tag.personal{background:#f0a50015;color:#f0a500;border-color:#f0a50030}
   .switch-btn{
     font-family:'DM Sans',sans-serif;font-size:0.78rem;font-weight:600;
-    padding:0.4rem 0.9rem;border-radius:8px;border:1px solid #2a2a3e;
+    padding:0.45rem 1rem;border-radius:8px;border:1px solid #2a2a3e;
     background:transparent;color:#53a8b6;cursor:pointer;
     transition:all 0.15s;white-space:nowrap;
   }
@@ -144,6 +163,14 @@ function getUploadPage() {
   .status-bar a{color:#53a8b6;text-decoration:none;font-weight:500}
   .status-bar a:hover{text-decoration:underline}
 
+  /* Warning banner for wrong account */
+  .account-warning{
+    background:#e9456015;border:1px solid #e9456040;border-radius:10px;
+    padding:0.7rem 1rem;margin-bottom:1rem;font-size:0.82rem;
+    color:#e94560;display:none;
+  }
+  .account-warning.visible{display:block}
+
   /* Drop zone */
   .drop-zone{
     border:2px dashed #2a2a3e;border-radius:16px;padding:2.5rem 2rem;
@@ -154,11 +181,7 @@ function getUploadPage() {
   .drop-zone .icon{font-size:2.2rem;margin-bottom:0.6rem}
   .drop-zone h3{font-size:1.05rem;font-weight:600;margin-bottom:0.3rem}
   .drop-zone p{font-size:0.82rem;color:#888}
-  .zip-note{
-    margin-top:0.7rem;font-size:0.78rem;color:#53a8b6;
-    background:#53a8b610;padding:0.4rem 0.9rem;border-radius:8px;
-    display:inline-block;
-  }
+  .zip-note{margin-top:0.7rem;font-size:0.78rem;color:#53a8b6;background:#53a8b610;padding:0.4rem 0.9rem;border-radius:8px;display:inline-block}
   .drop-zone.uploading{pointer-events:none;opacity:0.6}
   input[type="file"]{display:none}
 
@@ -172,11 +195,7 @@ function getUploadPage() {
 
   /* File list */
   .file-list{display:flex;flex-direction:column;gap:0.35rem;margin-bottom:1.2rem;max-height:250px;overflow-y:auto}
-  .file-item{
-    background:#111118;border:1px solid #1a1a2e;border-radius:8px;
-    padding:0.5rem 0.9rem;display:flex;align-items:center;
-    gap:0.6rem;font-size:0.8rem;
-  }
+  .file-item{background:#111118;border:1px solid #1a1a2e;border-radius:8px;padding:0.5rem 0.9rem;display:flex;align-items:center;gap:0.6rem;font-size:0.8rem}
   .file-item .name{flex:1;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .file-item .size{color:#555;font-family:'JetBrains Mono',monospace;font-size:0.68rem;flex-shrink:0}
   .si{flex-shrink:0}
@@ -187,36 +206,18 @@ function getUploadPage() {
   .summary.visible{display:block}
   .summary h3{color:#53a8b6;font-size:1rem;margin-bottom:0.5rem}
   .summary p{font-size:0.84rem;color:#999;line-height:1.5}
-
-  .link-box{
-    margin-top:1rem;background:#0a0a0f;border:1px solid #1a1a2e;
-    border-radius:10px;padding:0.8rem 1rem;display:flex;align-items:center;gap:0.6rem;
-  }
-  .link-box input{
-    flex:1;background:transparent;border:none;color:#53a8b6;
-    font-family:'JetBrains Mono',monospace;font-size:0.78rem;
-    outline:none;overflow:hidden;text-overflow:ellipsis;
-  }
-  .copy-btn{
-    font-family:'DM Sans',sans-serif;font-size:0.75rem;font-weight:600;
-    padding:0.35rem 0.8rem;border-radius:6px;border:1px solid #53a8b6;
-    background:transparent;color:#53a8b6;cursor:pointer;
-    transition:all 0.15s;white-space:nowrap;
-  }
+  .link-box{margin-top:1rem;background:#0a0a0f;border:1px solid #1a1a2e;border-radius:10px;padding:0.8rem 1rem;display:flex;align-items:center;gap:0.6rem}
+  .link-box input{flex:1;background:transparent;border:none;color:#53a8b6;font-family:'JetBrains Mono',monospace;font-size:0.78rem;outline:none;overflow:hidden;text-overflow:ellipsis}
+  .copy-btn{font-family:'DM Sans',sans-serif;font-size:0.75rem;font-weight:600;padding:0.35rem 0.8rem;border-radius:6px;border:1px solid #53a8b6;background:transparent;color:#53a8b6;cursor:pointer;transition:all 0.15s;white-space:nowrap}
   .copy-btn:hover{background:#53a8b620}
   .copy-btn.copied{background:#53a8b6;color:#0a0a0f;border-color:#53a8b6}
-
+  .hint{font-size:0.75rem;color:#555;margin-top:0.8rem}
   .btn-row{display:flex;gap:0.6rem;justify-content:center;margin-top:1rem;flex-wrap:wrap}
-  .folder-link,.claude-link{
-    display:inline-block;padding:0.55rem 1.2rem;border-radius:8px;
-    font-weight:600;font-size:0.85rem;text-decoration:none;transition:opacity 0.2s;
-  }
+  .folder-link,.claude-link{display:inline-block;padding:0.55rem 1.2rem;border-radius:8px;font-weight:600;font-size:0.85rem;text-decoration:none;transition:opacity 0.2s}
   .folder-link{background:linear-gradient(135deg,#e94560,#53a8b6);color:white}
   .folder-link:hover{opacity:0.85}
   .claude-link{border:1px solid #53a8b6;color:#53a8b6;background:transparent}
   .claude-link:hover{background:#53a8b615}
-
-  .hint{font-size:0.75rem;color:#555;margin-top:0.8rem}
   .footer{margin-top:2rem;text-align:center;font-size:0.73rem;color:#444}
 </style>
 </head>
@@ -229,17 +230,24 @@ function getUploadPage() {
   </div>
 
   <!-- Account Bar -->
-  <div class="account-bar" id="accountBar">
+  <div class="account-bar">
     <div class="avatar" id="avatar">?</div>
     <div class="account-info">
-      <div class="label">Logged in as</div>
+      <div class="label">Uploading to Drive as</div>
       <div class="email" id="accountEmail">Loading...</div>
+      <div class="domain-tag" id="domainTag" style="display:none"></div>
     </div>
-    <button class="switch-btn" id="switchBtn" onclick="switchAccount()">Switch Account</button>
+    <button class="switch-btn" onclick="switchAccount()">Switch Account</button>
+  </div>
+
+  <!-- Wrong account warning -->
+  <div class="account-warning" id="accountWarning">
+    ⚠️ Make sure you're logged into the correct Google account. Files will be saved to this account's Drive.
+    Click "Switch Account" above to change.
   </div>
 
   <!-- Status -->
-  <div class="status-bar" id="statusBar">
+  <div class="status-bar">
     <div class="dot pending" id="statusDot"></div>
     <div class="text" id="statusText">Initializing...</div>
   </div>
@@ -267,13 +275,11 @@ function getUploadPage() {
   <div class="summary" id="summary">
     <h3>✅ All files backed up</h3>
     <p id="summaryText"></p>
-
     <div class="link-box">
       <input type="text" id="folderLinkInput" readonly value="">
       <button class="copy-btn" id="copyBtn" onclick="copyLink()">Copy Link</button>
     </div>
-    <div class="hint">📋 Copy this link and paste it back into Claude so it knows where your backup is</div>
-
+    <div class="hint">📋 Paste this link back into Claude so it knows where your backup is stored</div>
     <div class="btn-row">
       <a class="folder-link" id="folderLink" href="#" target="_blank">Open in Drive →</a>
       <a class="claude-link" href="https://claude.ai" target="_blank">Back to Claude ↩</a>
@@ -291,11 +297,30 @@ let totalFiles = 0;
 // Load user info
 google.script.run
   .withSuccessHandler(function(user) {
-    document.getElementById('accountEmail').textContent = user.email || 'Unknown';
-    document.getElementById('avatar').textContent = user.initial || '?';
+    var emailEl = document.getElementById('accountEmail');
+    var avatarEl = document.getElementById('avatar');
+    var tagEl = document.getElementById('domainTag');
+
+    if (user.email) {
+      emailEl.textContent = user.email;
+      avatarEl.textContent = user.initial;
+
+      // Show domain badge
+      tagEl.style.display = 'inline-block';
+      if (user.domain === 'gmail.com' || user.domain === 'googlemail.com') {
+        tagEl.textContent = 'Personal Account';
+        tagEl.classList.add('personal');
+      } else {
+        tagEl.textContent = user.domain;
+      }
+    } else {
+      emailEl.textContent = 'Not detected — files will still save to your Drive';
+      avatarEl.textContent = '?';
+      document.getElementById('accountWarning').classList.add('visible');
+    }
   })
   .withFailureHandler(function() {
-    document.getElementById('accountEmail').textContent = 'Could not load account';
+    document.getElementById('accountEmail').textContent = 'Could not detect account';
   })
   .getUserInfo();
 
@@ -313,11 +338,11 @@ google.script.run
   })
   .createSessionFolder();
 
-// Switch account — redirect to Google's account chooser then back here
 function switchAccount() {
-  var currentUrl = encodeURIComponent(window.location.href);
-  // This prompts Google to show the account picker
-  window.top.location.href = 'https://accounts.google.com/AccountChooser?continue=' + currentUrl;
+  // Open Google account chooser — user picks account, gets redirected back
+  // Using top.location since the script runs in an iframe
+  var url = window.location.href;
+  window.top.location.href = 'https://accounts.google.com/AccountChooser?continue=' + encodeURIComponent(url);
 }
 
 // Drop zone
@@ -352,7 +377,7 @@ async function handleFiles(files) {
           showProgress('Extracting ' + file.name + '...', extracted, entries.length);
         }
       } catch (err) {
-        addFileItem(file.name, 0, 'error', 'ZIP extraction failed: ' + err);
+        addFileItem(file.name, 0, 'error', 'ZIP error: ' + err);
       }
     } else {
       allFiles.push({ file: file, subfolder: null });
@@ -429,11 +454,13 @@ function checkComplete() {
 
 function copyLink() {
   var input = document.getElementById('folderLinkInput');
-  input.select();
-  document.execCommand('copy');
+  if (navigator.clipboard) {
+    navigator.clipboard.writeText(input.value);
+  } else {
+    input.select(); document.execCommand('copy');
+  }
   var btn = document.getElementById('copyBtn');
-  btn.textContent = 'Copied!';
-  btn.classList.add('copied');
+  btn.textContent = 'Copied!'; btn.classList.add('copied');
   setTimeout(function() { btn.textContent = 'Copy Link'; btn.classList.remove('copied'); }, 2000);
 }
 
@@ -445,10 +472,9 @@ function getSubfolder(entryName) {
 function guessMime(name) {
   var ext = name.split('.').pop().toLowerCase();
   return {
-    md:'text/markdown', json:'application/json', txt:'text/plain',
-    csv:'text/csv', html:'text/html', pdf:'application/pdf',
-    png:'image/png', jpg:'image/jpeg', jpeg:'image/jpeg',
-    zip:'application/zip',
+    md:'text/markdown',json:'application/json',txt:'text/plain',csv:'text/csv',
+    html:'text/html',pdf:'application/pdf',png:'image/png',jpg:'image/jpeg',
+    jpeg:'image/jpeg',zip:'application/zip',
     docx:'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
     xlsx:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
     pptx:'application/vnd.openxmlformats-officedocument.presentationml.presentation'
@@ -465,8 +491,7 @@ function showProgress(label, current, total) {
 function addFileItem(name, size, status, err) {
   var item = document.createElement('div'); item.className = 'file-item';
   var icon = status==='done'?'✅':status==='error'?'❌':'⏳';
-  var cls = status==='done'?'done':status==='error'?'error':'pending';
-  item.innerHTML = '<span class="si '+cls+'">'+icon+'</span>'
+  item.innerHTML = '<span class="si '+status+'">'+icon+'</span>'
     +'<span class="name">'+esc(name.split('/').pop())+(err?' — '+esc(err):'')+'</span>'
     +'<span class="size">'+fmtSize(size)+'</span>';
   document.getElementById('fileList').appendChild(item);
