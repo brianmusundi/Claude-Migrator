@@ -358,7 +358,7 @@ Show the user their validation report and output files. Then ask:
 ### Step 3.1: Confirm Target Account
 
 **Ask:**
-> Which account are you importing INTO? (e.g., "my Lighthouse Sports team account", "my new Pro account")
+> Which account are you importing INTO? (e.g., "my team account", "my new Pro account")
 >
 > Make sure you have access to that account. You'll need to be logged into it in your browser for the memory import steps.
 
