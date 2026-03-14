@@ -1,11 +1,12 @@
 /**
  * Claude Migrator — Google Drive Backup Uploader
  * 
- * A tiny Google Apps Script web app that:
+ * A Google Apps Script web app that:
  * 1. Creates a "Claude Migration Backups" folder in the user's Drive
- * 2. Creates a date-stamped subfolder for each migration
- * 3. Provides a drag-and-drop upload page
- * 4. Returns the folder link
+ * 2. Creates a date-stamped subfolder for each migration session
+ * 3. Accepts ZIP files — extracts them client-side and uploads each file
+ * 4. Also accepts individual files (Markdown, JSON, etc.)
+ * 5. Drag-and-drop upload with progress tracking
  *
  * SETUP (one-time, 2 minutes):
  * 1. Go to https://script.google.com
@@ -14,42 +15,29 @@
  * 4. Click "Deploy" → "New deployment"
  * 5. Select type: "Web app"
  * 6. Set "Execute as": "Me"
- * 7. Set "Who has access": "Anyone in your organization" (or "Anyone" for personal accounts)
+ * 7. Set "Who has access": "Anyone in your organization" (or "Anyone")
  * 8. Click "Deploy"
- * 9. Authorize when prompted (one-time Google permission)
- * 10. Copy the deployment URL — that's your upload link
- *
- * Staff just open the URL, drag files, done.
+ * 9. Authorize when prompted — click "Advanced" → "Go to (unsafe)" → "Allow"
+ * 10. Copy the deployment URL — share with staff
  */
 
 // ============================================================
-// BACKEND — Google Apps Script server-side functions
+// BACKEND — Server-side Google Apps Script functions
 // ============================================================
 
-/**
- * Serves the HTML upload page when the web app URL is opened.
- */
 function doGet() {
   return HtmlService.createHtmlOutput(getUploadPage())
     .setTitle('Claude Migration Backup')
     .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
 }
 
-/**
- * Gets or creates the root backup folder.
- */
 function getRootFolder() {
   var folderName = 'Claude Migration Backups';
   var folders = DriveApp.getFoldersByName(folderName);
-  if (folders.hasNext()) {
-    return folders.next();
-  }
+  if (folders.hasNext()) return folders.next();
   return DriveApp.createFolder(folderName);
 }
 
-/**
- * Creates a date-stamped subfolder for this migration session.
- */
 function createSessionFolder() {
   var root = getRootFolder();
   var now = new Date();
@@ -64,10 +52,12 @@ function createSessionFolder() {
   };
 }
 
-/**
- * Receives a file upload from the client.
- * @param {Object} data - { fileName, mimeType, content (base64), folderId }
- */
+function createSubfolder(parentFolderId, subfolderName) {
+  var parent = DriveApp.getFolderById(parentFolderId);
+  var subfolder = parent.createFolder(subfolderName);
+  return { folderId: subfolder.getId(), folderUrl: subfolder.getUrl() };
+}
+
 function uploadFile(data) {
   try {
     var folder = DriveApp.getFolderById(data.folderId);
@@ -81,35 +71,13 @@ function uploadFile(data) {
       fileSize: file.getSize()
     };
   } catch (e) {
-    return {
-      success: false,
-      error: e.toString()
-    };
+    return { success: false, error: e.toString() };
   }
-}
-
-/**
- * Lists files in a session folder.
- * @param {string} folderId
- */
-function listFiles(folderId) {
-  var folder = DriveApp.getFolderById(folderId);
-  var files = folder.getFiles();
-  var result = [];
-  while (files.hasNext()) {
-    var f = files.next();
-    result.push({
-      name: f.getName(),
-      size: f.getSize(),
-      url: f.getUrl()
-    });
-  }
-  return result;
 }
 
 
 // ============================================================
-// FRONTEND — HTML/CSS/JS upload page
+// FRONTEND — HTML page with JSZip for client-side extraction
 // ============================================================
 
 function getUploadPage() {
@@ -118,226 +86,106 @@ function getUploadPage() {
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 <style>
   @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
-
   * { margin: 0; padding: 0; box-sizing: border-box; }
-
   body {
     font-family: 'DM Sans', -apple-system, sans-serif;
-    background: #0a0a0f;
-    color: #e0e0e8;
-    min-height: 100vh;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    padding: 2rem 1rem;
+    background: #0a0a0f; color: #e0e0e8;
+    min-height: 100vh; display: flex; flex-direction: column;
+    align-items: center; padding: 2rem 1rem;
   }
-
-  .container {
-    max-width: 640px;
-    width: 100%;
-  }
-
-  .header {
-    text-align: center;
-    margin-bottom: 2rem;
-  }
-
+  .container { max-width: 660px; width: 100%; }
+  .header { text-align: center; margin-bottom: 2rem; }
   .header h1 {
-    font-size: 1.8rem;
-    font-weight: 700;
+    font-size: 1.8rem; font-weight: 700;
     background: linear-gradient(135deg, #e94560, #53a8b6);
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
+    -webkit-background-clip: text; -webkit-text-fill-color: transparent;
     margin-bottom: 0.4rem;
   }
-
-  .header p {
-    color: #888;
-    font-size: 0.95rem;
-  }
+  .header p { color: #888; font-size: 0.95rem; }
 
   .status-bar {
-    background: #111118;
-    border: 1px solid #1a1a2e;
-    border-radius: 12px;
-    padding: 1rem 1.4rem;
-    margin-bottom: 1.5rem;
-    display: flex;
-    align-items: center;
-    gap: 0.8rem;
+    background: #111118; border: 1px solid #1a1a2e; border-radius: 12px;
+    padding: 1rem 1.4rem; margin-bottom: 1.5rem;
+    display: flex; align-items: center; gap: 0.8rem;
   }
-
-  .status-bar .dot {
-    width: 10px;
-    height: 10px;
-    border-radius: 50%;
-    background: #53a8b6;
-    flex-shrink: 0;
-  }
-
-  .status-bar .dot.pending { background: #f0a500; }
-  .status-bar .dot.error { background: #e94560; }
-
-  .status-bar .text {
-    font-size: 0.88rem;
-    color: #bbb;
-  }
-
-  .status-bar a {
-    color: #53a8b6;
-    text-decoration: none;
-    font-weight: 500;
-  }
-
+  .dot { width: 10px; height: 10px; border-radius: 50%; background: #53a8b6; flex-shrink: 0; }
+  .dot.pending { background: #f0a500; }
+  .dot.error { background: #e94560; }
+  .status-bar .text { font-size: 0.88rem; color: #bbb; }
+  .status-bar a { color: #53a8b6; text-decoration: none; font-weight: 500; }
   .status-bar a:hover { text-decoration: underline; }
 
   .drop-zone {
-    border: 2px dashed #2a2a3e;
-    border-radius: 16px;
-    padding: 3rem 2rem;
-    text-align: center;
-    cursor: pointer;
-    transition: all 0.2s;
-    margin-bottom: 1.5rem;
-    background: #0d0d14;
+    border: 2px dashed #2a2a3e; border-radius: 16px;
+    padding: 3rem 2rem; text-align: center; cursor: pointer;
+    transition: all 0.2s; margin-bottom: 1.5rem; background: #0d0d14;
   }
-
-  .drop-zone:hover, .drop-zone.dragover {
-    border-color: #53a8b6;
-    background: #0f1520;
+  .drop-zone:hover, .drop-zone.dragover { border-color: #53a8b6; background: #0f1520; }
+  .drop-zone .icon { font-size: 2.5rem; margin-bottom: 0.8rem; }
+  .drop-zone h3 { font-size: 1.1rem; font-weight: 600; margin-bottom: 0.4rem; }
+  .drop-zone p { font-size: 0.85rem; color: #888; }
+  .drop-zone .zip-note {
+    margin-top: 0.8rem; font-size: 0.8rem; color: #53a8b6;
+    background: #53a8b610; padding: 0.5rem 1rem; border-radius: 8px;
+    display: inline-block;
   }
-
-  .drop-zone .icon {
-    font-size: 2.5rem;
-    margin-bottom: 0.8rem;
-  }
-
-  .drop-zone h3 {
-    font-size: 1.1rem;
-    font-weight: 600;
-    margin-bottom: 0.4rem;
-  }
-
-  .drop-zone p {
-    font-size: 0.85rem;
-    color: #888;
-  }
-
-  .drop-zone.uploading {
-    pointer-events: none;
-    opacity: 0.7;
-  }
-
+  .drop-zone.uploading { pointer-events: none; opacity: 0.7; }
   input[type="file"] { display: none; }
 
-  .file-list {
-    display: flex;
-    flex-direction: column;
-    gap: 0.5rem;
-    margin-bottom: 1.5rem;
+  .progress-section {
+    background: #111118; border: 1px solid #1a1a2e; border-radius: 12px;
+    padding: 1.2rem; margin-bottom: 1rem; display: none;
   }
-
-  .file-item {
-    background: #111118;
-    border: 1px solid #1a1a2e;
-    border-radius: 10px;
-    padding: 0.8rem 1.2rem;
-    display: flex;
-    align-items: center;
-    gap: 0.8rem;
-    font-size: 0.85rem;
-  }
-
-  .file-item .name {
-    flex: 1;
-    font-weight: 500;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  .file-item .size {
-    color: #666;
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 0.75rem;
-    flex-shrink: 0;
-  }
-
-  .file-item .status-icon { flex-shrink: 0; }
-  .file-item .status-icon.done { color: #53a8b6; }
-  .file-item .status-icon.error { color: #e94560; }
-  .file-item .status-icon.pending { color: #f0a500; }
-
-  .progress-bar {
-    width: 100%;
-    height: 3px;
-    background: #1a1a2e;
-    border-radius: 2px;
-    margin-top: 0.4rem;
-    overflow: hidden;
-  }
-
+  .progress-section.visible { display: block; }
+  .progress-section h4 { font-size: 0.85rem; color: #888; margin-bottom: 0.6rem; }
+  .progress-bar { width: 100%; height: 6px; background: #1a1a2e; border-radius: 3px; overflow: hidden; }
   .progress-bar .fill {
-    height: 100%;
-    background: linear-gradient(90deg, #e94560, #53a8b6);
-    border-radius: 2px;
-    transition: width 0.3s;
+    height: 100%; background: linear-gradient(90deg, #e94560, #53a8b6);
+    border-radius: 3px; transition: width 0.3s; width: 0%;
   }
+  .progress-text {
+    font-family: 'JetBrains Mono', monospace; font-size: 0.75rem;
+    color: #666; margin-top: 0.4rem; text-align: right;
+  }
+
+  .file-list { display: flex; flex-direction: column; gap: 0.4rem; margin-bottom: 1.5rem; max-height: 300px; overflow-y: auto; }
+  .file-item {
+    background: #111118; border: 1px solid #1a1a2e; border-radius: 8px;
+    padding: 0.6rem 1rem; display: flex; align-items: center;
+    gap: 0.6rem; font-size: 0.82rem;
+  }
+  .file-item .name { flex: 1; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .file-item .size { color: #666; font-family: 'JetBrains Mono', monospace; font-size: 0.7rem; flex-shrink: 0; }
+  .file-item .si { flex-shrink: 0; }
+  .si.done { color: #53a8b6; }
+  .si.error { color: #e94560; }
+  .si.pending { color: #f0a500; }
 
   .summary {
-    background: #111118;
-    border: 1px solid #1a1a2e;
-    border-radius: 12px;
-    padding: 1.4rem;
-    text-align: center;
-    display: none;
+    background: #111118; border: 1px solid #1a1a2e; border-radius: 12px;
+    padding: 1.4rem; text-align: center; display: none;
   }
-
   .summary.visible { display: block; }
-
-  .summary h3 {
-    color: #53a8b6;
-    font-size: 1rem;
-    margin-bottom: 0.6rem;
-  }
-
-  .summary p {
-    font-size: 0.85rem;
-    color: #999;
-    line-height: 1.5;
-  }
-
+  .summary h3 { color: #53a8b6; font-size: 1rem; margin-bottom: 0.6rem; }
+  .summary p { font-size: 0.85rem; color: #999; line-height: 1.5; }
   .summary .folder-link {
-    display: inline-block;
-    margin-top: 0.8rem;
-    padding: 0.6rem 1.4rem;
+    display: inline-block; margin-top: 0.8rem; padding: 0.6rem 1.4rem;
     background: linear-gradient(135deg, #e94560, #53a8b6);
-    color: white;
-    text-decoration: none;
-    border-radius: 8px;
-    font-weight: 600;
-    font-size: 0.9rem;
-    transition: opacity 0.2s;
+    color: white; text-decoration: none; border-radius: 8px;
+    font-weight: 600; font-size: 0.9rem; transition: opacity 0.2s;
   }
-
   .summary .folder-link:hover { opacity: 0.85; }
-
-  .footer {
-    margin-top: 2rem;
-    text-align: center;
-    font-size: 0.75rem;
-    color: #444;
-  }
+  .footer { margin-top: 2rem; text-align: center; font-size: 0.75rem; color: #444; }
 </style>
 </head>
 <body>
 <div class="container">
-
   <div class="header">
     <h1>Claude Migration Backup</h1>
-    <p>Drop your exported conversation files here to save them to Google Drive</p>
+    <p>Drop your export files or ZIP here to save them to Google Drive</p>
   </div>
 
   <div class="status-bar" id="statusBar">
@@ -348,9 +196,16 @@ function getUploadPage() {
   <div class="drop-zone" id="dropZone">
     <div class="icon">📁</div>
     <h3>Drag & drop files here</h3>
-    <p>or click to browse — accepts any file type</p>
+    <p>or click to browse</p>
+    <div class="zip-note">📦 ZIP files are automatically extracted before uploading</div>
   </div>
-  <input type="file" id="fileInput" multiple>
+  <input type="file" id="fileInput" multiple accept=".zip,.md,.json,.txt,.csv,*/*">
+
+  <div class="progress-section" id="progressSection">
+    <h4 id="progressLabel">Extracting ZIP...</h4>
+    <div class="progress-bar"><div class="fill" id="progressFill"></div></div>
+    <div class="progress-text" id="progressText">0 / 0</div>
+  </div>
 
   <div class="file-list" id="fileList"></div>
 
@@ -360,78 +215,115 @@ function getUploadPage() {
     <a class="folder-link" id="folderLink" href="#" target="_blank">Open in Google Drive →</a>
   </div>
 
-  <div class="footer">
-    Claude Migrator — Built by St1ng3r254
-  </div>
-
+  <div class="footer">Claude Migrator — Built by St1ng3r254</div>
 </div>
 
 <script>
-  let sessionFolder = null;
-  let uploadedCount = 0;
-  let totalFiles = 0;
+let sessionFolder = null;
+let uploadedCount = 0;
+let totalFiles = 0;
+let uploadQueue = [];
+let isProcessing = false;
 
-  // Initialize — create session folder on load
-  google.script.run
-    .withSuccessHandler(function(folder) {
-      sessionFolder = folder;
-      document.getElementById('statusDot').className = 'dot';
-      document.getElementById('statusText').innerHTML =
-        'Ready — backup folder: <a href="' + folder.rootUrl + '" target="_blank">Claude Migration Backups</a> / ' + folder.folderName;
-    })
-    .withFailureHandler(function(err) {
-      document.getElementById('statusDot').className = 'dot error';
-      document.getElementById('statusText').textContent = 'Error creating folder: ' + err;
-    })
-    .createSessionFolder();
+// Init — create session folder
+google.script.run
+  .withSuccessHandler(function(folder) {
+    sessionFolder = folder;
+    document.getElementById('statusDot').className = 'dot';
+    document.getElementById('statusText').innerHTML =
+      'Ready — backup folder: <a href="' + folder.rootUrl + '" target="_blank">Claude Migration Backups</a> / ' + folder.folderName;
+  })
+  .withFailureHandler(function(err) {
+    document.getElementById('statusDot').className = 'dot error';
+    document.getElementById('statusText').textContent = 'Error: ' + err;
+  })
+  .createSessionFolder();
 
-  // Drop zone events
-  var dropZone = document.getElementById('dropZone');
-  var fileInput = document.getElementById('fileInput');
+// Drop zone
+var dropZone = document.getElementById('dropZone');
+var fileInput = document.getElementById('fileInput');
 
-  dropZone.addEventListener('click', function() { fileInput.click(); });
+dropZone.addEventListener('click', function() { fileInput.click(); });
+dropZone.addEventListener('dragover', function(e) { e.preventDefault(); dropZone.classList.add('dragover'); });
+dropZone.addEventListener('dragleave', function() { dropZone.classList.remove('dragover'); });
+dropZone.addEventListener('drop', function(e) { e.preventDefault(); dropZone.classList.remove('dragover'); handleFiles(e.dataTransfer.files); });
+fileInput.addEventListener('change', function() { handleFiles(fileInput.files); });
 
-  dropZone.addEventListener('dragover', function(e) {
-    e.preventDefault();
-    dropZone.classList.add('dragover');
-  });
+async function handleFiles(files) {
+  if (!sessionFolder) { alert('Still initializing — please wait a moment.'); return; }
+  dropZone.classList.add('uploading');
 
-  dropZone.addEventListener('dragleave', function() {
-    dropZone.classList.remove('dragover');
-  });
+  var allFiles = [];
 
-  dropZone.addEventListener('drop', function(e) {
-    e.preventDefault();
-    dropZone.classList.remove('dragover');
-    handleFiles(e.dataTransfer.files);
-  });
+  for (var i = 0; i < files.length; i++) {
+    var file = files[i];
 
-  fileInput.addEventListener('change', function() {
-    handleFiles(fileInput.files);
-  });
+    if (file.name.endsWith('.zip') || file.type === 'application/zip' || file.type === 'application/x-zip-compressed') {
+      // Extract ZIP client-side
+      showProgress('Extracting ' + file.name + '...', 0, 1);
+      try {
+        var zip = await JSZip.loadAsync(file);
+        var entries = Object.keys(zip.files);
+        var extracted = 0;
 
-  function handleFiles(files) {
-    if (!sessionFolder) {
-      alert('Still initializing — please wait a moment and try again.');
-      return;
-    }
+        for (var j = 0; j < entries.length; j++) {
+          var entry = zip.files[entries[j]];
+          if (entry.dir) continue; // skip directories
 
-    totalFiles += files.length;
-    dropZone.classList.add('uploading');
+          var blob = await entry.async('blob');
+          var extractedFile = new File([blob], entry.name, { type: guessMime(entry.name) });
+          allFiles.push({ file: extractedFile, subfolder: getSubfolder(entry.name) });
+          extracted++;
+          showProgress('Extracting ' + file.name + '...', extracted, entries.length);
+        }
 
-    for (var i = 0; i < files.length; i++) {
-      uploadFile(files[i]);
+        showProgress('Extracted ' + extracted + ' files from ' + file.name, extracted, extracted);
+      } catch (err) {
+        addFileItem(file.name, 0, 'error', 'ZIP extraction failed: ' + err);
+      }
+    } else {
+      allFiles.push({ file: file, subfolder: null });
     }
   }
 
-  function uploadFile(file) {
-    var item = document.createElement('div');
-    item.className = 'file-item';
-    item.innerHTML =
-      '<span class="status-icon pending">⏳</span>' +
-      '<span class="name">' + escapeHtml(file.name) + '</span>' +
-      '<span class="size">' + formatSize(file.size) + '</span>';
-    document.getElementById('fileList').appendChild(item);
+  // Upload all files
+  totalFiles += allFiles.length;
+  showProgress('Uploading to Google Drive...', 0, allFiles.length);
+
+  var subfolderCache = {};
+
+  for (var k = 0; k < allFiles.length; k++) {
+    var item = allFiles[k];
+    var targetFolderId = sessionFolder.folderId;
+
+    // Create subfolders for ZIP directory structure
+    if (item.subfolder) {
+      if (!subfolderCache[item.subfolder]) {
+        try {
+          var sf = await new Promise(function(resolve, reject) {
+            google.script.run
+              .withSuccessHandler(resolve)
+              .withFailureHandler(reject)
+              .createSubfolder(sessionFolder.folderId, item.subfolder);
+          });
+          subfolderCache[item.subfolder] = sf.folderId;
+        } catch (e) {
+          subfolderCache[item.subfolder] = sessionFolder.folderId;
+        }
+      }
+      targetFolderId = subfolderCache[item.subfolder];
+    }
+
+    await uploadSingleFile(item.file, targetFolderId, k + 1, allFiles.length);
+  }
+
+  dropZone.classList.remove('uploading');
+  checkComplete();
+}
+
+function uploadSingleFile(file, folderId, current, total) {
+  return new Promise(function(resolve) {
+    var itemEl = addFileItem(file.name, file.size, 'pending', '');
 
     var reader = new FileReader();
     reader.onload = function(e) {
@@ -439,54 +331,100 @@ function getUploadPage() {
       google.script.run
         .withSuccessHandler(function(result) {
           if (result.success) {
-            item.querySelector('.status-icon').textContent = '✅';
-            item.querySelector('.status-icon').className = 'status-icon done';
+            setFileStatus(itemEl, 'done', '✅');
           } else {
-            item.querySelector('.status-icon').textContent = '❌';
-            item.querySelector('.status-icon').className = 'status-icon error';
-            item.querySelector('.name').textContent += ' — ' + result.error;
+            setFileStatus(itemEl, 'error', '❌ ' + result.error);
           }
           uploadedCount++;
-          checkComplete();
+          showProgress('Uploading to Google Drive...', uploadedCount, total);
+          resolve();
         })
         .withFailureHandler(function(err) {
-          item.querySelector('.status-icon').textContent = '❌';
-          item.querySelector('.status-icon').className = 'status-icon error';
+          setFileStatus(itemEl, 'error', '❌');
           uploadedCount++;
-          checkComplete();
+          showProgress('Uploading to Google Drive...', uploadedCount, total);
+          resolve();
         })
         .uploadFile({
-          fileName: file.name,
+          fileName: file.name.split('/').pop(), // strip path, keep filename
           mimeType: file.type || 'application/octet-stream',
           content: base64,
-          folderId: sessionFolder.folderId
+          folderId: folderId
         });
     };
     reader.readAsDataURL(file);
-  }
+  });
+}
 
-  function checkComplete() {
-    if (uploadedCount >= totalFiles) {
-      dropZone.classList.remove('uploading');
-      var summary = document.getElementById('summary');
-      summary.classList.add('visible');
-      document.getElementById('summaryText').textContent =
-        uploadedCount + ' file(s) saved to Google Drive in folder "' + sessionFolder.folderName + '"';
-      document.getElementById('folderLink').href = sessionFolder.folderUrl;
-    }
-  }
+function getSubfolder(entryName) {
+  var parts = entryName.split('/');
+  if (parts.length > 1) return parts[0]; // e.g. "conversations/file.md" → "conversations"
+  return null;
+}
 
-  function formatSize(bytes) {
-    if (bytes < 1024) return bytes + ' B';
-    if (bytes < 1048576) return (bytes / 1024).toFixed(1) + ' KB';
-    return (bytes / 1048576).toFixed(1) + ' MB';
-  }
+function guessMime(name) {
+  var ext = name.split('.').pop().toLowerCase();
+  var map = {
+    'md': 'text/markdown', 'json': 'application/json', 'txt': 'text/plain',
+    'csv': 'text/csv', 'html': 'text/html', 'pdf': 'application/pdf',
+    'png': 'image/png', 'jpg': 'image/jpeg', 'jpeg': 'image/jpeg',
+    'zip': 'application/zip', 'docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    'xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    'pptx': 'application/vnd.openxmlformats-officedocument.presentationml.presentation'
+  };
+  return map[ext] || 'application/octet-stream';
+}
 
-  function escapeHtml(s) {
-    var d = document.createElement('div');
-    d.textContent = s;
-    return d.innerHTML;
+function showProgress(label, current, total) {
+  var section = document.getElementById('progressSection');
+  section.classList.add('visible');
+  document.getElementById('progressLabel').textContent = label;
+  document.getElementById('progressFill').style.width = (total > 0 ? (current / total * 100) : 0) + '%';
+  document.getElementById('progressText').textContent = current + ' / ' + total;
+}
+
+function addFileItem(name, size, status, errorMsg) {
+  var item = document.createElement('div');
+  item.className = 'file-item';
+  var icon = status === 'done' ? '✅' : status === 'error' ? '❌' : '⏳';
+  var cls = status === 'done' ? 'done' : status === 'error' ? 'error' : 'pending';
+  item.innerHTML =
+    '<span class="si ' + cls + '">' + icon + '</span>' +
+    '<span class="name">' + escapeHtml(name.split('/').pop()) + (errorMsg ? ' — ' + escapeHtml(errorMsg) : '') + '</span>' +
+    '<span class="size">' + formatSize(size) + '</span>';
+  document.getElementById('fileList').appendChild(item);
+  return item;
+}
+
+function setFileStatus(itemEl, status, icon) {
+  var si = itemEl.querySelector('.si');
+  si.textContent = icon;
+  si.className = 'si ' + status;
+}
+
+function checkComplete() {
+  if (uploadedCount >= totalFiles && totalFiles > 0) {
+    var summary = document.getElementById('summary');
+    summary.classList.add('visible');
+    document.getElementById('summaryText').textContent =
+      uploadedCount + ' file(s) saved to Google Drive in "' + sessionFolder.folderName + '"';
+    document.getElementById('folderLink').href = sessionFolder.folderUrl;
+    document.getElementById('progressSection').classList.remove('visible');
   }
+}
+
+function formatSize(bytes) {
+  if (!bytes) return '';
+  if (bytes < 1024) return bytes + ' B';
+  if (bytes < 1048576) return (bytes / 1024).toFixed(1) + ' KB';
+  return (bytes / 1048576).toFixed(1) + ' MB';
+}
+
+function escapeHtml(s) {
+  var d = document.createElement('div');
+  d.textContent = s;
+  return d.innerHTML;
+}
 </script>
 </body>
 </html>`;
