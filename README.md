@@ -137,9 +137,10 @@ Your first message after reading this must be:
 
 **"Let's get your Claude data migrated. First — are you moving data FROM this account, or INTO this account?"**
 
-**If FROM this account (Export):** → Go to EXPORT PROCESS below
-**If INTO this account (Import):** → Ask them to upload their export ZIP/JSON file, then go to PROCESSING below
-**If they're unsure:** → Ask: "Do you have a ZIP file from a previous Claude export? If yes, upload it. If no, I'll walk you through getting one."
+**If FROM this account (Export):** → Go to EXPORT PROCESS below. After export, tell them: "Now log into the account you want to import INTO, paste this repo link there, and upload your ZIP. Claude will do the rest."
+**If INTO this account (Import):** → Ask them to upload their export ZIP/JSON file, then go to PROCESSING below. After processing, **automatically write memory edits into this account** using the memory_user_edits tool.
+**If they upload a file without answering:** → Go to PROCESSING below, then auto-import.
+**If they're unsure:** → Ask: "Do you have a ZIP file from a previous Claude export? If yes, upload it here and I'll import everything automatically. If no, I'll walk you through getting one."
 
 ---
 
@@ -476,47 +477,96 @@ print(f"\n📁 Output: {out}/")
 
 **After running the script, show the user the validation report and present the output files.**
 
-Then say: **"Everything is processed. Here are your files. Would you like me to walk you through importing this into your other account?"**
+Then **immediately proceed to the import step below.** Do not ask the user whether they want to import. Just do it. The whole point is seamless migration.
 
-If they say yes → Go to IMPORT below.
-If they say no → They're done. Offer the files for download.
+Say: **"Your export is processed. Now I'm going to set up your memory in this account. Let me show you what I'm about to import — take a look and tell me if anything should be removed or changed."**
+
+Show them the contents of `memory-summary.md`.
+
+Wait for their approval. If they request changes, apply them. If they say "looks good" or similar, proceed immediately.
 
 ---
 
-## IMPORT PROCESS
+## AUTOMATIC MEMORY IMPORT
 
-### Step 1: Review Memory Summary
-Show them the contents of `memory-summary.md` and say:
+**This is the critical section. Claude must use the `memory_user_edits` tool to directly write memory into the current account. Do NOT tell the user to go copy-paste things into Settings. Do it yourself.**
 
-**"Before we import, review this memory summary. Tell me if anything should be removed (outdated info, personal stuff) or added."**
+### Step 1: Extract memory lines
 
-Wait for approval or edits. Apply changes.
+From the parsed `memory-summary.md`, extract the key facts from the "Your Claude Memory" section. Break them into individual memory edits — one fact per edit. Each edit should be a concise statement under 500 characters.
 
-### Step 2: Log into Target Account
-Say: **"Now log into the Claude account you want to import INTO. Go to Settings → Capabilities → Memory. Can you see the Memory section?"**
+For example, from a memory block like:
+> "Brian Musundi works at Lighthouse Sports. His work spans IT administration, cybersecurity, and networking."
 
-If they can't find it:
-- Check if Memory is toggled ON
-- Look under different tab names
-- Confirm their plan supports Memory (Pro, Max, Team, Enterprise)
-- If Team plan, admin may need to enable it
+Create these edits:
+- `User works at Lighthouse Sports`
+- `User's work spans IT administration, cybersecurity, and networking`
 
-### Step 3: Import Memory
-Say: **"You have two options:"**
+### Step 2: Check existing memory
 
-**"Option A — If you see 'Import memory' or 'Start import': Click it, and paste the text I'm about to give you."**
+First, call `memory_user_edits` with command `view` to see what's already stored. This prevents duplicates.
 
-Then give them the curated memory summary contents.
+### Step 3: Add each memory edit
 
-**"Option B — If you only see 'View and edit your memory': Click it, then I'll give you each memory edit to add one at a time."**
+For each extracted fact that doesn't already exist in memory, call `memory_user_edits` with command `add` and the edit text. Do them all in sequence. Do NOT ask the user to confirm each one — just do them all and report what was added.
 
-Feed them edits one by one.
+Example calls:
+```
+memory_user_edits(command="view")
+memory_user_edits(command="add", control="User works at Lighthouse Sports as IT administrator")
+memory_user_edits(command="add", control="User is based in Nairobi, Kenya")
+memory_user_edits(command="add", control="User is building Kisasa FC, a youth football academy")
+...
+```
 
-### Step 4: Verify
-Say: **"Start a brand new conversation in your target account and ask Claude: 'What do you remember about me?' It should reflect what we just imported. Note: it can take up to 24 hours for imported memory to fully appear."**
+### Step 4: Import projects as memory context
 
-### Step 5: Done
-Say: **"Your migration is complete! I'd recommend uploading the conversations folder to Google Drive so you can search your old chats anytime."**
+For each project found in `projects.json` (excluding starter projects), add a memory edit:
+```
+memory_user_edits(command="add", control="User has a project called '[Project Name]': [description]")
+```
+
+If the project has custom instructions, add those too:
+```
+memory_user_edits(command="add", control="Project '[Name]' custom instructions: [instructions]")
+```
+
+### Step 5: Report what was imported
+
+After all edits are done, show the user a summary:
+
+**"Migration complete. Here's what I set up in this account:"**
+
+```
+IMPORT SUMMARY
+═══════════════
+✅ Memory edits added: [N]
+✅ Projects referenced: [N]
+📁 Conversation archive: [N] files (download below)
+
+Your memory is now active in this account. Claude will remember
+this context in all future conversations.
+```
+
+Then present the conversation archive files (index.md + conversations folder) for download.
+
+### Step 6: Project recreation guidance
+
+If projects were found, say:
+
+**"I've added your project context to memory, but Claude can't automatically create Projects in the UI. For each project you need to recreate:"**
+
+Then list each project with:
+1. Name
+2. Description
+3. Custom instructions (if any)
+4. Knowledge files to re-upload (if any)
+
+Say: **"Go to claude.ai → Projects → New Project for each one. I've saved the details in projects.md for reference."**
+
+### Step 7: Verify
+
+Say: **"Your migration is done. To verify, start a fresh conversation and ask me 'What do you know about me?' — I should have full context about your work, projects, and preferences."**
 
 ---
 
@@ -532,11 +582,12 @@ If ANYTHING goes wrong at any point, match the symptom and fix it. Never dead-en
 | ZIP won't open | Re-download. Parser auto-repairs what it can. |
 | No conversations found | Account may have had no saved chats, or export only contains metadata. |
 | Garbled characters | Parser auto-fixes encoding. Report specific conversation if persists. |
-| Memory section not visible | Toggle Memory ON in Settings → Capabilities. Check plan. |
-| Import feature missing | Use manual "Add" method instead. |
-| Memory not appearing after import | Wait 24 hours. Then verify. Add missing items manually. |
-| Claude remembers wrong things | Settings → Capabilities → Memory → View and edit. Remove bad entries. |
+| memory_user_edits tool not available | Fall back to manual: show edits and tell user to go to Settings → Capabilities → Memory → View and edit. |
+| Memory edit rejected (too long) | Break it into smaller statements under 500 chars each. |
+| Memory not reflecting in new chats | Memory edits take effect immediately for new conversations. If not showing, verify with `memory_user_edits(command="view")`. |
+| Claude remembers wrong things | Use `memory_user_edits(command="remove", line_number=N)` to delete specific entries. |
 | Uploaded ChatGPT export by mistake | Parser detects and warns. Export from claude.ai instead. |
+| Projects can't be auto-created | Expected — give user the project details to recreate manually. |
 
 ---
 
